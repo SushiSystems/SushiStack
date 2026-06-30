@@ -58,7 +58,7 @@ def _checkbox(checked: bool) -> Panel:
     glyph = "X" if checked else " "
     return Panel(
         Text(glyph, justify="center", style="bold"),
-        width=9,
+        width=7,
         padding=(0, 1),
         border_style="green" if checked else "grey50",
         style="on green" if checked else "",
@@ -96,11 +96,13 @@ def _selection_from_checked(items, checked) -> dict[str, bool]:
 
 
 def _confirm(items, checked) -> bool:
-    chosen = [items[i][0] for i in range(len(items)) if checked[i]]
+    chosen = [(items[i][0], items[i][1]) for i in range(len(items)) if checked[i]]
     console.console.print()
     if chosen:
-        console.console.print("[bold]These will be installed:[/bold] "
-                              + ", ".join(f"[green]{c}[/green]" for c in chosen))
+        console.console.print("[bold]The following dependencies will be downloaded:[/bold]")
+        for key, label in chosen:
+            console.console.print(f"  [green]•[/green] [green]{key}[/green] — {label}")
+        console.console.print()
     else:
         console.warn("Nothing selected — this installs no toolchains.")
     answer = input("Are you sure? [y/N] ").strip().lower()
