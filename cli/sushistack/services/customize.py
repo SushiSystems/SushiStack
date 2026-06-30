@@ -56,9 +56,9 @@ def _getch() -> tuple[str, str]:
 
 def _checkbox(checked: bool) -> Padding:
     """A single-line checkbox: green background when checked."""
-    glyph = " X " if checked else "   "
+    glyph = "  X  " if checked else "     "
     style = "bold on green" if checked else "on grey23"
-    return Padding(Text(glyph, style=style, justify="center"), pad=(0, 1))
+    return Padding(Text(glyph, style=style, justify="center"), pad=(0, 2))
 
 
 def _card(key: str, label: str, checked: bool, focused: bool) -> Panel:
@@ -72,7 +72,7 @@ def _card(key: str, label: str, checked: bool, focused: bool) -> Panel:
         body,
         width=24,
         padding=(1, 1),
-        border_style="bold cyan" if focused else "grey37",
+        border_style="bold cyan" if focused else ("green" if checked else "grey37"),
         title="",
     )
 
