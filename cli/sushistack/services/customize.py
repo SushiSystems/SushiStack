@@ -64,6 +64,7 @@ def _checkbox(checked: bool) -> Padding:
 def _card(key: str, label: str, checked: bool, focused: bool) -> Panel:
     body = Group(
         Align.center(_checkbox(checked)),
+        Text(""),
         Align.center(Text(key, style="bold cyan" if focused else "bold")),
         Align.center(Text(label, style="dim", justify="center")),
     )
