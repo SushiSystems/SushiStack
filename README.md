@@ -1,48 +1,38 @@
 # SushiStack
 
-The umbrella workspace for the Sushi technology stack. One shared dependency
-tree, one installer, every module beside it.
+A shared workspace for the Sushi stack. Installs the toolchains and libraries all modules need into one `dependencies/` directory and manages the module checkouts.
 
-SushiStack owns no compute and no math — it only **provisions** the toolchain and
-libraries the stack needs and **manages the module checkouts** that live inside
-it (SushiRuntime, SushiEngine, SushiAI, SushiBLAS, …). Each module keeps its own
-CLI for building and testing (`sr`, `se`); `ss` keeps everything they share in
-one place so nothing is downloaded twice and one command reclaims it all.
+Each module has its own CLI (`sr`, `se`) for building and testing. `ss` only handles dependencies and module lifecycle.
 
 ## Layout
 
 ```
-sushistack/                ← clone this first
-  cli/                     ← the `ss` CLI and dependency engine
-    manifests/             ← per-module dependency fragments (*.deps.toml)
-  dependencies/            ← shared toolchains, vcpkg, cmake/ninja (git-ignored)
-  sushiruntime/            ← `ss add runtime`
-  sushiengine/             ← `ss add engine`
+sushistack/
+  cli/                     ← the `ss` CLI
+    manifests/             ← dependency fragments (*.deps.toml)
+  dependencies/            ← toolchains, vcpkg, cmake/ninja (git-ignored)
+  sushiruntime/            ← added by `ss add runtime`
+  sushiengine/             ← added by `ss add engine`
   .sushistack              ← workspace marker
 ```
 
-The whole `dependencies/` tree is shared by every module, so `sr` and `se`
-resolve their compiler and vcpkg from `../dependencies` instead of provisioning
-their own.
+Modules resolve their compiler and vcpkg from `../dependencies`.
 
 ## Quick start
 
 ```bash
-# 1. Clone the workspace and put `ss` on PATH.
 git clone https://github.com/sushisystems/sushistack.git
 cd sushistack
-python cli/install.py            # installs the `ss` CLI via pipx
+python cli/install.py       # installs the `ss` CLI via pipx
 
-# 2. Provision the shared dependencies and pull in the modules you want.
-ss init                          # mark the workspace, set up .gitignore
-ss install                      # download the toolchain + libraries
-ss add runtime engine            # clone the modules into the workspace
+ss init                     # write .sushistack marker and .gitignore entries
+ss install                  # download toolchains and libraries
+ss add runtime engine       # clone modules into the workspace
 
-# 3. Build a module with its own CLI.
 cd sushiruntime && sr build
 ```
 
-Or in one shot, hosted at sushisystems.io:
+One-shot installers:
 
 ```bash
 curl -fsSL https://sushisystems.io/install.sh | bash      # Linux / WSL
@@ -53,15 +43,13 @@ irm https://sushisystems.io/install.ps1 | iex             # Windows
 
 | Command | What it does |
 |---|---|
-| `ss init` | Mark the current directory as a workspace; set up `.gitignore` and `dependencies/`. |
-| `ss install [--profile P] [--gpu]` | Provision the shared dependencies. |
-| `ss add <runtime\|engine\|ai\|blas\|all>` | Clone stack modules into the workspace. |
-| `ss update [module…]` | Fast-forward (`git pull`) cloned modules. |
-| `ss sync` | Install missing deps, then update modules — bring everything current. |
-| `ss status` | Show which modules are cloned and whether deps are present. |
-| `ss doctor` | Inventory tools, compilers, and deps; report what is missing. |
-| `ss remove [--all]` | Remove provisioned deps; `--all` wipes the whole tree. |
-| `ss home` | Print the resolved workspace root. |
-
-Install profiles: `lightweight` (AdaptiveCpp only), `normal` (intel-llvm +
-AdaptiveCpp, default), `full` (+ Intel oneAPI).
+| `ss init` | Write the `.sushistack` workspace marker and add `dependencies/` to `.gitignore`. |
+| `ss install [--customize] [--dry-run]` | Download and install shared dependencies. `--customize` opens an interactive picker to select which toolchains to install. |
+| `ss add <runtime\|engine\|ai\|blas\|all>` | Clone one or more modules into the workspace. |
+| `ss link <module> <path>` | Register an existing checkout outside the workspace as a module. |
+| `ss update [module…]` | Run `git pull` on cloned modules. Omit arguments to update all. |
+| `ss sync [--dry-run]` | Install missing dependencies, then update all modules. |
+| `ss status` | Show which modules are present and whether dependencies are installed. |
+| `ss doctor` | Check tools, compilers, and dependencies; report what is missing. |
+| `ss remove [--gpu] [--all] [--dry-run]` | Remove installed dependencies. `--all` removes the entire `dependencies/` tree. |
+| `ss home` | Print the workspace root and the `dependencies/` path. |
