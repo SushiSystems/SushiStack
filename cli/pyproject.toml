@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sushistack-cli"
+version = "1.0.0"
+description = "SushiStack CLI — shared dependency provisioning and module manager for the stack"
+authors = [{ name = "Mustafa Garip", email = "mustafagarip@sushisystems.io" }]
+requires-python = ">=3.10"
+dependencies = [
+    "typer>=0.12",
+    "rich>=13.0",
+    "tomli>=2.0; python_version < '3.11'",
+]
+
+[project.scripts]
+ss = "sushistack.cli:app"
+sushistack = "sushistack.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["sushistack*"]
+
+# The dependency fragments under cli/manifests/ are read from the cloned
+# workspace at run time (ss resolves the workspace root via the .sushistack
+# marker), so they are not shipped inside the wheel.
+
+[tool.setuptools.package-data]
+sushistack = ["py.typed"]

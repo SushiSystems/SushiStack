@@ -1,0 +1,15 @@
+# Managed by `ss init`: shared dependencies and cloned modules are not tracked.
+/dependencies/
+/sushiruntime/
+/sushiengine/
+/sushiai/
+/sushiblas/
+
+# Local machine config written by `ss install` / `ss link`.
+/cli/config.local.toml
+/cli/modules.local.toml
+
+# Python / tooling cruft.
+__pycache__/
+*.egg-info/
+*.pyc

@@ -1,0 +1,66 @@
+# SushiStack base dependency fragment — the module-independent build and toolchain
+# infrastructure every workspace needs regardless of which modules are cloned.
+# Module-specific dependencies do NOT live here; each module declares its own in a
+# `sushistack.deps.toml` at its repo root, which `ss` aggregates with this file.
+#
+# `ss install` merges every cli/manifests/*.deps.toml fragment plus each known
+# module's sushistack.deps.toml into one dependency set, gathers the package names
+# for the active platform, checks what is already present, and installs only the
+# missing ones into the shared dependencies/ tree. No dependency name lives in the
+# installer code.
+#
+# Field reference:
+#   description    Human-readable purpose (shown by `ss doctor`).
+#   required       false => a missing one warns but does not stop the build.
+#   gpu_only       true  => only installed when `--gpu` is passed.
+#   linux_apt      apt package names; empty list = not needed on Linux.
+#   windows_vcpkg  vcpkg port names; empty list = not needed on Windows.
+#   check_cmd      Optional command; exit 0 means "already installed" (idempotency).
+
+[build_tools]
+description   = "C++ compiler and core build tools (gcc, g++, make). Any GCC >= 9 suffices for the intel-llvm -fsycl host pass."
+required      = true
+linux_apt     = ["build-essential"]
+windows_vcpkg = []
+
+[cmake]
+# Windows: installed via winget (Kitware.CMake) by install.ps1 — cmake cannot
+# bootstrap itself through vcpkg, and vcpkg itself requires cmake to run.
+description   = "CMake build system. 3.20+ for intel-llvm / AdaptiveCpp; 3.25+ required for the oneAPI toolchain."
+required      = true
+linux_apt     = ["cmake"]
+windows_vcpkg = []
+check_cmd     = ["cmake", "--version"]
+
+[ninja]
+# Windows: installed via winget (Ninja-build.Ninja) by install.ps1.
+description   = "Ninja build generator (default generator on both platforms via config.toml)."
+required      = true
+linux_apt     = ["ninja-build"]
+windows_vcpkg = []
+check_cmd     = ["ninja", "--version"]
+
+[gtest]
+description   = "GoogleTest (unit / integration test framework). Shared: every module tests with it."
+required      = true
+linux_apt     = ["libgtest-dev"]
+windows_vcpkg = ["gtest"]
+
+[opencl]
+description   = "OpenCL ICD loader + dev headers (exposes CPU as a SYCL device)"
+required      = true
+linux_apt     = ["ocl-icd-opencl-dev", "ocl-icd-libopencl1"]
+windows_vcpkg = ["opencl"]
+check_cmd     = ["pkg-config", "--exists", "OpenCL"]
+
+[pkgconf]
+description   = "pkg-config implementation (CMake uses it to locate hwloc and other libs)"
+required      = true
+linux_apt     = ["pkg-config"]
+windows_vcpkg = ["pkgconf"]
+check_cmd     = ["pkg-config", "--version"]
+
+# Note: the SYCL toolchains (intel-llvm, AdaptiveCpp, oneAPI) and CUDA are NOT
+# here — they are SushiRuntime's dependencies, declared in
+# sushiruntime/cli/sushistack.deps.toml. SushiStack's base has no SYCL/compute
+# deps of its own.

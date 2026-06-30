@@ -1,0 +1,43 @@
+# SushiRuntime CLI configuration.
+#
+# Layering (lowest -> highest precedence):
+#   built-in defaults  ->  this file  ->  config.local.toml  ->  SUSHI_* env vars  ->  CLI flags
+#
+# This file is committed and holds shared / portable defaults. Machine-specific
+# absolute paths (compiler locations, oneAPI/VS roots, vcpkg) belong in a
+# gitignored `config.local.toml` next to this file, using the SAME section
+# layout. The active platform's `[tool.<platform>]` section is merged over the
+# common `[tool]` section automatically.
+
+[tool]
+# Default executable for `sr project run` with no target.
+target_bin = "sr_functional_tests"
+
+[tool.linux]
+# cc/cxx are intentionally unset: the compiler is derived from the selected
+# toolchain (acpp / clang++ / icpx). Pin them in config.local.toml only to
+# override that (e.g. a custom clang path).
+generator = "Ninja"
+use_vcpkg = false
+vcpkg_root = "~/vcpkg"
+oneapi_root = "/opt/intel/oneapi"
+
+[tool.windows]
+generator = "Ninja"
+use_vcpkg = true
+vcpkg_triplet = "x64-windows"
+target_bin = "sr_functional_tests.exe"
+# The following are machine-specific; override in config.local.toml.
+# vs_vcvars    = "C:/Program Files (x86)/Microsoft Visual Studio/2022/BuildTools/VC/Auxiliary/Build/vcvars64.bat"
+# oneapi_root  = "C:/Program Files (x86)/Intel/oneAPI"
+# ninja_exe    = "ninja"
+# vcpkg_root   = "C:/vcpkg"
+# icx_compiler = "C:/Program Files (x86)/Intel/oneAPI/compiler/latest/bin/icx-cl.exe"
+# pkgconf_exe  = "C:/vcpkg/installed/x64-windows/tools/pkgconf/pkgconf.exe"
+# cmake_exe    = "C:/Users/<you>/scoop/shims/cmake.exe"
+# ctest_exe    = "C:/Users/<you>/scoop/shims/ctest.exe"
+# SYCL toolchains installed by `sr setup` (intel-llvm is the default):
+#   llvm_root  = intel/llvm bundle root holding bin/clang++.exe (intel-llvm)
+#   acpp_exe   = AdaptiveCpp's acpp launcher (adaptivecpp)
+# llvm_root    = "C:/Users/<you>/AppData/Local/SushiRuntime/toolchains/llvm-sycl"
+# acpp_exe     = "C:/Users/<you>/AppData/Local/SushiRuntime/toolchains/adaptivecpp/bin/acpp.bat"
