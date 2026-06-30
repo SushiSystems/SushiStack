@@ -17,7 +17,6 @@ import sys
 
 from rich.align import Align
 from rich.console import Group
-from rich.padding import Padding
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -54,11 +53,15 @@ def _getch() -> tuple[str, str]:
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
 
-def _checkbox(checked: bool) -> Padding:
-    """A single-line checkbox: green background when checked."""
-    glyph = "  X  " if checked else "     "
-    style = "bold on green" if checked else "on grey23"
-    return Padding(Text(glyph, style=style, justify="center"), pad=(0, 2))
+def _checkbox(checked: bool) -> Panel:
+    """A square checkbox panel: green fill when checked."""
+    return Panel(
+        Text("X" if checked else " ", justify="center", style="bold"),
+        width=7,
+        padding=(0, 0),
+        border_style="green" if checked else "grey50",
+        style="on green" if checked else "",
+    )
 
 
 def _card(key: str, label: str, checked: bool, focused: bool) -> Panel:
