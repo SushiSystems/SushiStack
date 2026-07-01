@@ -289,6 +289,21 @@ def status() -> int:
             state = "cloned" if (dest / ".git").is_dir() else "—"
             location = mod.directory
         table.add_row(name, location, state)
+
+    # The shared CLI presentation layer. Not a build module, but shown so it is
+    # not a black box: the umbrella fetches it, and a dev can `ss link sushicli`.
+    cli_dir = sushicli_dir(root)
+    if cli_dir is None:
+        table.add_row(SUSHICLI_NAME, "—", "missing")
+    else:
+        cli_dir = cli_dir.resolve()
+        if SUSHICLI_NAME in linked:
+            state = "linked"
+        elif cli_dir == (root / SUSHICLI_NAME).resolve():
+            state = "fetched"
+        else:
+            state = "sibling"
+        table.add_row(SUSHICLI_NAME, str(cli_dir), state)
     console.console.print(table)
 
     deps = deps_dir()
