@@ -124,7 +124,7 @@ def toolchain_status(cfg: Config, gpu: bool) -> list[tuple[str, bool, str]]:
     from rich.markup import escape as _rich_escape
 
     rows = [
-        ("intel-llvm",  intel_ok, f"intel/llvm SYCL toolchain (clang++ -fsycl) -> {_rich_escape(clang)}" if intel_ok else "intel/llvm SYCL toolchain (clang++ -fsycl)"),
+        ("intel-llvm",  intel_ok, f"intel/llvm SYCL toolchain (clang++ -fsycl) -> {_rich_escape(str(clang))}" if intel_ok else "intel/llvm SYCL toolchain (clang++ -fsycl)"),
         ("adaptivecpp", acpp_ok,  f"AdaptiveCpp (acpp) -> {_rich_escape(acpp_path)}" if acpp_ok else "AdaptiveCpp (acpp)"),
         ("oneapi",      oneapi_ok, f"Intel oneAPI DPC++ (icx/icpx) -> {_rich_escape(oneapi_bin)}" if oneapi_ok and oneapi_bin else "Intel oneAPI DPC++ (icx/icpx)"),
     ]
