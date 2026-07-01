@@ -122,6 +122,145 @@ _ONEAPI_KEY_URL = (
 )
 
 
+def _os_release() -> dict[str, str]:
+    """Parse /etc/os-release into a dict (empty off Linux or when unreadable)."""
+    data: dict[str, str] = {}
+    try:
+        for line in Path("/etc/os-release").read_text(encoding="utf-8").splitlines():
+            if "=" in line and not line.startswith("#"):
+                key, _, val = line.partition("=")
+                data[key.strip()] = val.strip().strip('"')
+    except OSError:
+        pass
+    return data
+
+
+def _apt_distro_tag() -> str:
+    """NVIDIA/ROCm-style distro tag for repo URLs, e.g. 'ubuntu2204'. '' if unknown."""
+    rel = _os_release()
+    idv = rel.get("ID", "").lower()
+    ver = rel.get("VERSION_ID", "").replace(".", "")
+    if idv in ("ubuntu", "debian") and ver:
+        return f"{idv}{ver}"
+    return ""
+
+
+def _sudo_bash(cmd: str, dry_run: bool) -> bool:
+    """Run a shell one-liner (as root via sudo when needed). Return True on success."""
+    console.command(cmd)
+    if dry_run:
+        console.info("(dry-run) not executed")
+        return True
+    return subprocess.run(["bash", "-c", cmd]).returncode == 0
+
+
+def ensure_cuda_toolkit(dry_run: bool) -> bool:
+    """Install the NVIDIA CUDA toolkit from NVIDIA's official apt repo (Ubuntu/Debian).
+
+    Ubuntu's own ``nvidia-cuda-toolkit`` is 11.x, incompatible with the intel/llvm
+    nightly (needs 12.x), so we add NVIDIA's ``cuda-keyring`` network repo — the
+    method NVIDIA documents — and install ``cuda-toolkit``. Best-effort and
+    non-fatal: a build can still run CPU-only (SPIR/OpenCL) without it.
+    """
+    if binary_works("nvcc"):
+        console.info("CUDA toolkit already present (nvcc found).")
+        return True
+    tag = _apt_distro_tag()
+    if not tag:
+        console.warn("Unrecognised distro for the NVIDIA CUDA repo; install the "
+                     "CUDA 12.x toolkit manually (https://developer.nvidia.com/cuda-downloads).")
+        return False
+    sudo = "" if _is_root() else "sudo "
+    keyring_url = (f"https://developer.download.nvidia.com/compute/cuda/repos/"
+                   f"{tag}/x86_64/cuda-keyring_1.1-1_all.deb")
+    steps = (
+        f"tmp=$(mktemp -d) && cd \"$tmp\" && "
+        f"curl -fsSLO {keyring_url} && "
+        f"{sudo}dpkg -i cuda-keyring_1.1-1_all.deb && "
+        f"{sudo}apt-get update && "
+        f"{sudo}apt-get install -y cuda-toolkit"
+    )
+    if not _sudo_bash(steps, dry_run):
+        console.warn("CUDA toolkit install failed. Install CUDA 12.x manually "
+                     "(https://developer.nvidia.com/cuda-downloads); the build will "
+                     "otherwise fall back to the CPU/OpenCL path.")
+        return False
+    return True
+
+
+def ensure_rocm(dry_run: bool) -> bool:
+    """Install AMD ROCm (HIP runtime + dev) from AMD's official apt repo (Ubuntu/Debian).
+
+    Adds the ROCm apt repository the way AMD documents and installs
+    ``rocm-hip-runtime-dev``. Best-effort / non-fatal.
+    """
+    if shutil.which("hipcc") or shutil.which("rocminfo"):
+        console.info("ROCm already present.")
+        return True
+    rel = _os_release()
+    codename = rel.get("VERSION_CODENAME", "")
+    if rel.get("ID", "").lower() not in ("ubuntu", "debian") or not codename:
+        console.warn("Unrecognised distro for the AMD ROCm repo; install ROCm "
+                     "manually (https://rocm.docs.amd.com).")
+        return False
+    sudo = "" if _is_root() else "sudo "
+    steps = (
+        f"{sudo}mkdir -p --mode=0755 /etc/apt/keyrings && "
+        f"curl -fsSL https://repo.radeon.com/rocm/rocm.gpg.key "
+        f"| {sudo}gpg --dearmor -o /etc/apt/keyrings/rocm.gpg && "
+        f'echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] '
+        f'https://repo.radeon.com/rocm/apt/latest {codename} main" '
+        f"| {sudo}tee /etc/apt/sources.list.d/rocm.list && "
+        f"{sudo}apt-get update && "
+        f"{sudo}apt-get install -y rocm-hip-runtime-dev"
+    )
+    if not _sudo_bash(steps, dry_run):
+        console.warn("ROCm install failed. Install it manually "
+                     "(https://rocm.docs.amd.com); the build will otherwise fall "
+                     "back to the CPU/OpenCL path.")
+        return False
+    return True
+
+
+def ensure_intel_gpu_runtime(dry_run: bool) -> bool:
+    """Install the Intel GPU compute stack (Level Zero + OpenCL) for Intel GPUs.
+
+    The oneAPI apt repo (configured by :func:`ensure_intel_oneapi_repo`) ships the
+    Level Zero loader; install it plus the Intel GPU OpenCL runtime so an Intel
+    GPU is exposed as a SYCL device. Best-effort / non-fatal.
+    """
+    if not ensure_intel_oneapi_repo(dry_run):
+        return False
+    sudo = "" if _is_root() else "sudo "
+    steps = (
+        f"{sudo}apt-get update && "
+        f"{sudo}apt-get install -y level-zero intel-oneapi-runtime-opencl "
+        f"intel-oneapi-runtime-libs"
+    )
+    if not _sudo_bash(steps, dry_run):
+        console.warn("Intel GPU runtime install failed; the build will fall back "
+                     "to the CPU/OpenCL path.")
+        return False
+    return True
+
+
+def install_gpu_stack(vendor: str, dry_run: bool) -> bool:
+    """Provision the compute SDK for the detected GPU *vendor* (Linux).
+
+    nvidia -> CUDA toolkit, amd -> ROCm, intel -> Level Zero + Intel OpenCL,
+    none -> nothing (the CPU SPIR/OpenCL path from the manifest already covers it).
+    Always best-effort: a failure here never fails `ss install`.
+    """
+    if vendor == "nvidia":
+        return ensure_cuda_toolkit(dry_run)
+    if vendor == "amd":
+        return ensure_rocm(dry_run)
+    if vendor == "intel":
+        return ensure_intel_gpu_runtime(dry_run)
+    console.info("No discrete GPU detected; using the CPU (SPIR/OpenCL) path only.")
+    return True
+
+
 def ensure_intel_oneapi_repo(dry_run: bool) -> bool:
     """Configure the Intel oneAPI apt repository (Debian/Ubuntu only).
 

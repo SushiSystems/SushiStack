@@ -113,6 +113,42 @@ def toolchain_status(cfg: Config, gpu: bool) -> list[tuple[str, bool, str]]:
     return rows
 
 
+def detect_gpu_vendor() -> str:
+    """Best-effort discrete-GPU vendor detection: nvidia | amd | intel | none.
+
+    Order: vendor management tools first (definitive when present), then a
+    portable ``lspci`` scan of the display-controller lines so we still classify
+    a fresh machine that has no vendor stack installed yet. Returns ``none`` when
+    nothing recognisable is found — the caller then provisions only the CPU
+    (SPIR/OpenCL) path.
+    """
+    if shutil.which("nvidia-smi"):
+        return "nvidia"
+    if shutil.which("rocminfo") or shutil.which("rocm-smi"):
+        return "amd"
+
+    try:
+        out = subprocess.run(["lspci"], capture_output=True, text=True,
+                             timeout=10).stdout.lower()
+    except Exception:
+        out = ""
+    gpu_lines = "\n".join(
+        ln for ln in out.splitlines()
+        if "vga compatible controller" in ln or "3d controller" in ln
+        or "display controller" in ln
+    )
+    # NVIDIA/AMD discrete parts win over an Intel iGPU on the same line-set, so
+    # they are checked first (a laptop often reports both Intel + a discrete GPU).
+    if "nvidia" in gpu_lines:
+        return "nvidia"
+    if ("advanced micro devices" in gpu_lines or "amd/ati" in gpu_lines
+            or "radeon" in gpu_lines):
+        return "amd"
+    if "intel" in gpu_lines:
+        return "intel"
+    return "none"
+
+
 def binary_works(cmd: str) -> bool:
     """Return True only if *cmd* is on PATH (or an absolute path) and runs cleanly.
 

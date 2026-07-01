@@ -27,6 +27,7 @@ from .package_managers import (
     WINGET_ID_TO_CMD,
     _tools_dir,
     ensure_intel_oneapi_repo,
+    install_gpu_stack,
     refresh_windows_path,
 )
 from .pipeline import InstallContext, Step, StepResult
@@ -158,10 +159,17 @@ class DetectStep(Step):
             table.add_row(dep.name, _mark(present), dep.owner,
                           f"{dep.description} ({pkgs})")
 
-        gpu_present = shutil.which("nvidia-smi") is not None
-        ctx.detected["nvidia_gpu"] = gpu_present
-        table.add_row("NVIDIA GPU", _mark(gpu_present), "sushiruntime",
-                      "use --gpu to install CUDA" if gpu_present else "")
+        vendor = probe.detect_gpu_vendor()
+        ctx.gpu_vendor = vendor
+        ctx.detected["nvidia_gpu"] = vendor == "nvidia"
+        _VENDOR_SDK = {
+            "nvidia": "NVIDIA — installs CUDA toolkit",
+            "amd":    "AMD — installs ROCm (HIP)",
+            "intel":  "Intel — installs Level Zero + Intel OpenCL",
+            "none":   "no discrete GPU — CPU (SPIR/OpenCL) path",
+        }
+        table.add_row("GPU vendor", _mark(vendor != "none"), "sushiruntime",
+                      _VENDOR_SDK.get(vendor, vendor))
 
         console.console.print(table)
 
@@ -378,6 +386,18 @@ class InstallDepsStep(Step):
         elif ctx.oneapi:
             console.warn(f"oneAPI on {mgr.name} is not automated; install the "
                          "Intel oneAPI DPC++ compiler manually.")
+
+        # GPU compute SDK, chosen by the detected vendor (NVIDIA->CUDA, AMD->ROCm,
+        # Intel->Level Zero). Only when GPU support is requested and apt is the
+        # manager (the vendor repos target Debian/Ubuntu). Non-fatal: a missing
+        # GPU stack leaves the CPU (SPIR/OpenCL) path working.
+        if ctx.gpu and mgr.name == "apt":
+            vendor = ctx.gpu_vendor or probe.detect_gpu_vendor()
+            ctx.gpu_vendor = vendor
+            install_gpu_stack(vendor, ctx.dry_run)
+        elif ctx.gpu and ctx.gpu_vendor not in ("", "none"):
+            console.warn(f"GPU SDK auto-install for '{ctx.gpu_vendor}' is only "
+                         f"automated on apt; install it manually on {mgr.name}.")
         return StepResult.OK if ok else StepResult.FAILED
 
     # -- Windows -------------------------------------------------------------- #

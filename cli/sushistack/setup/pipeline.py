@@ -60,6 +60,11 @@ class InstallContext:
     # toolchain installer never prompts mid-pipeline.
     assume_acpp_llvm: bool = False
 
+    # Populated by DetectStep: the discrete-GPU vendor (nvidia|amd|intel|none),
+    # which selects the compute SDK InstallDepsStep provisions and the build
+    # backend the module CLIs default to.
+    gpu_vendor: str = ""
+
     # Populated by DetectStep: tool/dependency name -> present?
     detected: dict[str, bool] = field(default_factory=dict)
     # Populated by InstallDepsStep: package names actually installed this run.
