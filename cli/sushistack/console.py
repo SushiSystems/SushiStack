@@ -1,63 +1,28 @@
-"""Rich-based console output for the SushiRuntime CLI."""
+"""CLI output for the SushiStack CLI.
+
+Thin wrapper around :mod:`sushicli` — the actual theme/icon/renderer logic
+(and its `[cli]` config schema) lives there and is shared with the
+sushiruntime and sushiengine CLIs. See sushicli's README to change colors.
+"""
 
 from __future__ import annotations
 
-import sys
+from sushicli import build_console
 
-# Force UTF-8 on stdout/stderr before any Rich output. A legacy Windows console
-# defaults to cp1252, which cannot encode Rich's spinner glyphs (e.g. the braille
-# '⠼'); the first such character would raise UnicodeEncodeError and turn any
-# progress display — including the failure path — into a secondary traceback.
-for _stream in (sys.stdout, sys.stderr):
-    _reconfigure = getattr(_stream, "reconfigure", None)
-    if _reconfigure is not None:
-        try:
-            _reconfigure(encoding="utf-8", errors="replace")
-        except (ValueError, OSError):
-            pass
+from .config import config_dir
 
-from rich.console import Console
-from rich.panel import Panel
-from rich.theme import Theme
+_cfg_dir = config_dir()
+_console = build_console([_cfg_dir / "config.toml", _cfg_dir / "config.local.toml"])
 
-_theme = Theme(
-    {
-        "info": "bold blue",
-        "success": "bold green",
-        "warn": "bold yellow",
-        "error": "bold red",
-        "cmd": "cyan",
-    }
-)
+# Raw Rich console, for callers that print a Table/Panel or other Rich
+# renderable directly instead of going through the semantic helpers below.
+console = _console.console
 
-console = Console(theme=_theme)
-
-
-def info(msg: str) -> None:
-    console.print(f"[info][INFO][/info] {msg}")
-
-
-def success(msg: str) -> None:
-    console.print(f"[success][SUCCESS][/success] {msg}")
-
-
-def warn(msg: str) -> None:
-    console.print(f"[warn][WARN][/warn] {msg}")
-
-
-def error(msg: str) -> None:
-    console.print(f"[error][ERROR][/error] {msg}")
-
-
-def command(cmd: str) -> None:
-    """Echo the command about to be executed."""
-    console.print(f"[info][INFO][/info] Executing: [cmd]{cmd}[/cmd]")
-
-
-def header(title: str) -> None:
-    console.print()
-    console.rule(f"[bold magenta]{title}")
-
-
-def fail_panel(title: str, body: str) -> None:
-    console.print(Panel(body, title=f"[error]{title}", border_style="red"))
+info = _console.info
+success = _console.success
+warn = _console.warn
+error = _console.error
+command = _console.command
+header = _console.header
+fail_panel = _console.fail_panel
+accent = _console.accent

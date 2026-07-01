@@ -24,6 +24,27 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 PACKAGE_NAME = "sushistack-cli"
 
 
+def find_sushicli_dir() -> Path:
+	"""Locate the sushicli sibling checkout (shared CLI presentation layer).
+
+	Not published to any index, so pipx's isolated venv can't resolve it as a
+	normal dependency — it's injected from source instead. Override with
+	SUSHICLI_DIR if the checkout isn't a sibling of this repo.
+	"""
+	import os
+
+	override = os.environ.get("SUSHICLI_DIR")
+	if override:
+		return Path(override)
+	candidate = REPO_ROOT.parent / "sushicli"
+	if not (candidate / "pyproject.toml").is_file():
+		sys.exit(
+			"[ERROR] sushicli checkout not found at "
+			f"{candidate}. Clone it next to this repo, or set SUSHICLI_DIR."
+		)
+	return candidate
+
+
 def find_package_dir() -> Path:
 	"""Return the directory containing the CLI's pyproject.toml."""
 	# Prefer common locations, then fall back to a shallow search.
@@ -62,12 +83,18 @@ def ensure_pipx() -> str:
 
 def install(editable: bool) -> int:
 	pkg_dir = find_package_dir()
+	sushicli_dir = find_sushicli_dir()
 
 	pipx = ensure_pipx().split()
 	cmd = [*pipx, "install", "--force", str(pkg_dir)]
 	if editable:
 		cmd.insert(cmd.index("install") + 1, "--editable")
 	rc = run(cmd)
+	if rc == 0:
+		# sushicli isn't a resolvable pip dependency (see pyproject.toml); inject
+		# it into the venv pipx just created, always editable so future sushicli
+		# edits apply without reinstalling this CLI.
+		rc = run([*pipx, "inject", PACKAGE_NAME, "--editable", str(sushicli_dir)])
 
 	if rc == 0:
 		print("\n[SUCCESS] CLI installed. Try:  ss --help   (or: sushistack --help)")

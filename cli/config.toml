@@ -41,3 +41,13 @@ target_bin = "sr_functional_tests.exe"
 #   acpp_exe   = AdaptiveCpp's acpp launcher (adaptivecpp)
 # llvm_root    = "C:/Users/<you>/AppData/Local/SushiRuntime/toolchains/llvm-sycl"
 # acpp_exe     = "C:/Users/<you>/AppData/Local/SushiRuntime/toolchains/adaptivecpp/bin/acpp.bat"
+
+[cli]
+# CLI appearance, resolved by the shared `sushicli` package (same schema for
+# sr/se/ss). Override in config.local.toml or with SUSHI_CLI_THEME /
+# SUSHI_CLI_ICONS / SUSHI_CLI_COLOR — no rebuild needed. See sushicli's README
+# for the full list of presets and the [cli.colors] / [cli.icon_overrides]
+# tables for one-off overrides.
+theme = "default"
+icons = "text"
+color = "auto"

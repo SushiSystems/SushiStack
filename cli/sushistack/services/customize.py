@@ -1,10 +1,10 @@
 """Interactive component picker for `ss install --customize`.
 
 Everything installs by default; this is the escape hatch for users who want a
-subset. The picker lays the optional components out as cards side by side — like a
-single horizontal row of choices — each with a big checkbox above it. Arrow keys
-move between cards, space toggles the focused one, enter continues, and a final
-confirmation guards against an accidental enter.
+subset. The picker lays the optional components out as a vertical checklist —
+one row per component, a pointer marking the focused row. Up/down move between
+rows, space toggles the focused one, enter continues, and a final confirmation
+guards against an accidental enter.
 
 It captures keys directly (msvcrt on Windows, termios on Unix) and renders with
 rich, so it needs no extra dependency. A non-interactive stdin (a pipe) falls
@@ -53,41 +53,29 @@ def _getch() -> tuple[str, str]:
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
 
-def _checkbox(checked: bool) -> Panel:
-    """A square checkbox panel: green fill when checked."""
-    return Panel(
-        Text("X" if checked else " ", justify="center", style="bold"),
-        width=7,
-        padding=(0, 0),
-        border_style="green" if checked else "grey50",
-        style="on green" if checked else "",
-    )
+def _row(key: str, label: str, checked: bool, focused: bool) -> Table:
+    pointer = Text("›", style=f"bold {console.accent}") if focused else Text(" ")
+    box = Text("●" if checked else "○", style="bold green" if checked else "grey50")
+    name = Text(key, style=f"bold {console.accent}" if focused else "bold")
+    desc = Text(label, style="dim")
 
-
-def _card(key: str, label: str, checked: bool, focused: bool) -> Panel:
-    body = Group(
-        Align.center(_checkbox(checked)),
-        Text(""),
-        Align.center(Text(key, style="bold cyan" if focused else "bold")),
-        Align.center(Text(label, style="dim", justify="center")),
-    )
-    return Panel(
-        body,
-        width=24,
-        padding=(1, 1),
-        border_style="bold cyan" if focused else ("green" if checked else "grey37"),
-        title="",
-    )
+    row = Table.grid(padding=(0, 1))
+    row.add_column(width=1)
+    row.add_column(width=1)
+    row.add_column(width=13)
+    row.add_column()
+    row.add_row(pointer, box, name, desc)
+    return row
 
 
 def _render(items, checked, focus):
-    cards = [_card(k, lbl, checked[i], i == focus) for i, (k, lbl, _f) in enumerate(items)]
-    row = Table.grid(padding=(0, 1))
-    row.add_row(*cards)
-    head = Text("Select the components to install", style="bold magenta", justify="center")
-    foot = Text("←/→ move    space toggle    enter continue    esc cancel",
-                style="dim", justify="center")
-    return Align.center(Group(head, Text(""), Align.center(row), Text(""), foot))
+    rows = Group(*(_row(k, lbl, checked[i], i == focus) for i, (k, lbl, _f) in enumerate(items)))
+    head = Text("Select the components to install", style=f"bold {console.accent}")
+    foot = Text("↑/↓ move    space toggle    enter continue    esc cancel", style="dim")
+    body = Group(head, Text(""), rows, Text(""), foot)
+    panel = Panel(body, padding=(1, 2), border_style="grey37", title="ss install --customize",
+                  title_align="left")
+    return Align.center(panel)
 
 
 def _selection_from_checked(items, checked) -> dict[str, bool]:
@@ -126,9 +114,9 @@ def choose_components() -> dict[str, bool] | None:
                   auto_refresh=False, screen=True) as live:
             while True:
                 kind, val = _getch()
-                if kind == "arrow" and val == "left":
+                if kind == "arrow" and val == "up":
                     focus = (focus - 1) % len(items)
-                elif kind == "arrow" and val == "right":
+                elif kind == "arrow" and val == "down":
                     focus = (focus + 1) % len(items)
                 elif kind == "char" and val == " ":
                     checked[focus] = not checked[focus]

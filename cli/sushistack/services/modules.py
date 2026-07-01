@@ -231,7 +231,7 @@ def status() -> int:
     linked = registered_modules()
     console.info(f"Workspace: {root}")
 
-    table = Table(show_header=True, header_style="bold magenta")
+    table = Table(show_header=True, header_style=console.accent)
     table.add_column("Module")
     table.add_column("Location")
     table.add_column("State")
