@@ -162,7 +162,7 @@ def ensure_cuda_toolkit(dry_run: bool) -> bool:
     method NVIDIA documents — and install ``cuda-toolkit``. Best-effort and
     non-fatal: a build can still run CPU-only (SPIR/OpenCL) without it.
     """
-    if binary_works("nvcc"):
+    if _binary_works("nvcc"):
         console.info("CUDA toolkit already present (nvcc found).")
         return True
     tag = _apt_distro_tag()
