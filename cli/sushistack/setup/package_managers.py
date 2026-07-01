@@ -72,27 +72,40 @@ def prime_sudo() -> None:
     (a plain `sudo -v` attached directly to the terminal, no output capture) means
     the later sudo calls reuse the cached timestamp and never need to prompt.
 
-    No-op when already root, when sudo is absent, or when there is no interactive
-    terminal to prompt on (e.g. `curl | bash`, where sudo could never prompt
-    anyway — the caller falls back to whatever the pipeline reports).
+    No-op when already root or when sudo is absent. Works even under
+    `curl | bash`: there stdin is the pipe, not a terminal, but the real
+    terminal is still reachable through /dev/tty — which is exactly where sudo
+    reads the password — so we open it explicitly and hand it to sudo as stdin.
     """
     if os.name == "nt" or _is_root() or shutil.which("sudo") is None:
         return
+
+    # Prefer stdin when it is already a terminal; otherwise fall back to the
+    # controlling terminal (/dev/tty), which exists even when stdin is a pipe
+    # (`curl | bash`). Without this, sudo has nothing to read the password from.
+    tty = None
     if not (sys.stdin and sys.stdin.isatty()):
-        console.warn(
-            "Not running in an interactive terminal, so sudo cannot ask for a "
-            "password. If dependency installation fails, run `ss install` "
-            "directly in a terminal (not piped) or pre-authorize with `sudo -v`."
-        )
-        return
+        try:
+            tty = open("/dev/tty", "r")
+        except OSError:
+            console.warn(
+                "No terminal available for a sudo password prompt. If dependency "
+                "installation fails, run `ss install` directly in a terminal, or "
+                "pre-authorize with `sudo -v`."
+            )
+            return
+
     # Print our own explicit prompt (and pass -p so sudo repeats a clear one on a
     # retry): under some terminals sudo's default "[sudo] password for …:" line
     # gets swallowed, leaving the user staring at a blank cursor.
     console.info("Some dependencies need administrator (sudo) access.")
     try:
-        subprocess.run(["sudo", "-p", "[sudo] password for %p: ", "-v"])
+        subprocess.run(["sudo", "-p", "[sudo] password for %p: ", "-v"], stdin=tty)
     except OSError as exc:
         console.warn(f"Could not prime sudo credentials: {exc}")
+    finally:
+        if tty is not None:
+            tty.close()
 
 
 def _tools_dir() -> Path:
