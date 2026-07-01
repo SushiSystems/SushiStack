@@ -85,9 +85,12 @@ def prime_sudo() -> None:
             "directly in a terminal (not piped) or pre-authorize with `sudo -v`."
         )
         return
-    console.info("Some dependencies need sudo. Please enter your password if prompted.")
+    # Print our own explicit prompt (and pass -p so sudo repeats a clear one on a
+    # retry): under some terminals sudo's default "[sudo] password for …:" line
+    # gets swallowed, leaving the user staring at a blank cursor.
+    console.info("Some dependencies need administrator (sudo) access.")
     try:
-        subprocess.run(["sudo", "-v"])
+        subprocess.run(["sudo", "-p", "[sudo] password for %p: ", "-v"])
     except OSError as exc:
         console.warn(f"Could not prime sudo credentials: {exc}")
 
