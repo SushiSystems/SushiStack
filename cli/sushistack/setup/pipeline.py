@@ -65,6 +65,12 @@ class InstallContext:
     # backend the module CLIs default to.
     gpu_vendor: str = ""
 
+    # Non-fatal problems surfaced by any step (e.g. a GPU SDK that failed to
+    # install). Collected here rather than only logged inline so the pipeline can
+    # re-print them after the progress bar — an inline warn scrolls off above the
+    # "Setup Complete!" line and gets missed. Empty means a fully clean run.
+    warnings: list[str] = field(default_factory=list)
+
     # Populated by DetectStep: tool/dependency name -> present?
     detected: dict[str, bool] = field(default_factory=dict)
     # Populated by InstallDepsStep: package names actually installed this run.
@@ -112,6 +118,7 @@ class InstallPipeline:
                 if result is StepResult.FAILED:
                     console.error(f"Step '{step.name}' failed; stopping.")
                     return False
+            self._report_warnings(ctx)
             return True
 
         from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
@@ -142,4 +149,19 @@ class InstallPipeline:
                 progress.advance(task)
 
             progress.update(task, description="[success]Setup Complete![/success]")
+        self._report_warnings(ctx)
         return True
+
+    @staticmethod
+    def _report_warnings(ctx: InstallContext) -> None:
+        """Re-print any non-fatal problems after the progress bar clears.
+
+        Warnings logged mid-pipeline scroll off above the final summary; echoing
+        them here makes sure a partial install (e.g. a GPU SDK that failed to
+        download) is impossible to miss.
+        """
+        if not ctx.warnings:
+            return
+        console.warn(f"Completed with {len(ctx.warnings)} warning(s):")
+        for message in ctx.warnings:
+            console.warn(f"  - {message}")

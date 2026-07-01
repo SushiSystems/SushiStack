@@ -394,7 +394,12 @@ class InstallDepsStep(Step):
         if ctx.gpu and mgr.name == "apt":
             vendor = ctx.gpu_vendor or probe.detect_gpu_vendor()
             ctx.gpu_vendor = vendor
-            install_gpu_stack(vendor, ctx.dry_run)
+            if not install_gpu_stack(vendor, ctx.dry_run) and vendor not in ("", "none"):
+                message = (f"GPU compute SDK for '{vendor}' was not installed — "
+                           f"the build will fall back to the CPU (SPIR/OpenCL) path. "
+                           f"See the log above for the failing command.")
+                console.error(message)
+                ctx.warnings.append(message)
         elif ctx.gpu and ctx.gpu_vendor not in ("", "none"):
             console.warn(f"GPU SDK auto-install for '{ctx.gpu_vendor}' is only "
                          f"automated on apt; install it manually on {mgr.name}.")

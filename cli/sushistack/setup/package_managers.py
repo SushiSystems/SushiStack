@@ -145,6 +145,35 @@ def _apt_distro_tag() -> str:
     return ""
 
 
+# Newest Ubuntu/Debian repo tag for which NVIDIA publishes the pinned CUDA 12.6
+# packages. Newer releases (e.g. ubuntu2604) only carry CUDA 13.x, which dropped
+# Pascal/sm_6x — so an exact-version tag there 404s on cuda-toolkit-12-6 and the
+# install silently fails. The 12.6 debs built for this tag run fine on newer
+# distros, so clamp forward-dated Ubuntu releases down to it.
+_CUDA126_MAX_UBUNTU_TAG = "ubuntu2404"
+
+
+def _cuda_repo_tag() -> str:
+    """Distro tag for NVIDIA's CUDA apt repo, clamped to one that ships 12.6.
+
+    Returns '' if the distro is unrecognised. For Ubuntu releases newer than the
+    last one with cuda-toolkit-12-6 published, fall back to that release's repo.
+    """
+    tag = _apt_distro_tag()
+    if not tag:
+        return ""
+    if tag.startswith("ubuntu"):
+        try:
+            ver = int(tag[len("ubuntu"):])
+        except ValueError:
+            return tag
+        if ver > int(_CUDA126_MAX_UBUNTU_TAG[len("ubuntu"):]):
+            console.info(f"NVIDIA has no CUDA 12.6 repo for {tag}; using "
+                         f"{_CUDA126_MAX_UBUNTU_TAG} (Pascal-capable, runs on newer Ubuntu).")
+            return _CUDA126_MAX_UBUNTU_TAG
+    return tag
+
+
 def _sudo_bash(cmd: str, dry_run: bool) -> bool:
     """Run a shell one-liner (as root via sudo when needed). Return True on success."""
     console.command(cmd)
@@ -170,7 +199,7 @@ def ensure_cuda_toolkit(dry_run: bool) -> bool:
     if _binary_works("nvcc"):
         console.info("CUDA toolkit already present (nvcc found).")
         return True
-    tag = _apt_distro_tag()
+    tag = _cuda_repo_tag()
     if not tag:
         console.warn("Unrecognised distro for the NVIDIA CUDA repo; install the "
                      "CUDA 12.x toolkit manually (https://developer.nvidia.com/cuda-downloads).")
