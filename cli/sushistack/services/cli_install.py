@@ -57,8 +57,14 @@ def _dist_name(pkg_dir: Path) -> str:
         return str(tomllib.load(fh)["project"]["name"])
 
 
-def install_cli(names: list[str] | None, editable: bool = True) -> int:
-    """Install the developer CLI of one or more modules. Return exit code."""
+def install_cli(names: list[str] | None) -> int:
+    """Install the developer CLI of one or more modules. Return exit code.
+
+    Always editable, against the checkout it was invoked from: a non-editable
+    install freezes the CLI at whatever revision was on disk at install time, so
+    later `git pull`s on the module silently stop reaching the installed `sr`/`se`
+    until someone thinks to reinstall by hand.
+    """
     console.header("SushiStack Install-CLI")
     resolved = _resolve_names(names)
     if resolved is None:
@@ -90,11 +96,7 @@ def install_cli(names: list[str] | None, editable: bool = True) -> int:
             continue
         dist = _dist_name(pkg_dir)
         console.info(f"{name}: installing {dist} from {pkg_dir}")
-        cmd = [*pipx, "install", "--force"]
-        if editable:
-            cmd.append("--editable")
-        cmd.append(str(pkg_dir))
-        rc = _run(cmd)
+        rc = _run([*pipx, "install", "--force", "--editable", str(pkg_dir)])
         if rc == 0:
             # sushicli isn't a resolvable pip dependency; inject it (editable so
             # its edits apply without reinstalling the module CLI).

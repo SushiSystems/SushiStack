@@ -118,15 +118,21 @@ def toolchain_status(cfg: Config, gpu: bool) -> list[tuple[str, bool, str]]:
     oneapi_ok = (active in ("icx-cl", "icpx")
                  or (bool(oneapi_bin) and binary_works(oneapi_bin)))
 
+    # Rich table cells are rendered as markup, so a path in square brackets (e.g.
+    # from a Windows drive-letter-free relative path someone configured) would be
+    # parsed as a tag and crash rendering. Escape it.
+    from rich.markup import escape as _rich_escape
+
     rows = [
-        ("intel-llvm",  intel_ok, f"intel/llvm SYCL toolchain (clang++ -fsycl) [{clang}]" if intel_ok else "intel/llvm SYCL toolchain (clang++ -fsycl)"),
-        ("adaptivecpp", acpp_ok,  f"AdaptiveCpp (acpp) [{acpp_path}]" if acpp_ok else "AdaptiveCpp (acpp)"),
-        ("oneapi",      oneapi_ok, f"Intel oneAPI DPC++ (icx/icpx) [{oneapi_bin}]" if oneapi_ok and oneapi_bin else "Intel oneAPI DPC++ (icx/icpx)"),
+        ("intel-llvm",  intel_ok, f"intel/llvm SYCL toolchain (clang++ -fsycl) -> {_rich_escape(clang)}" if intel_ok else "intel/llvm SYCL toolchain (clang++ -fsycl)"),
+        ("adaptivecpp", acpp_ok,  f"AdaptiveCpp (acpp) -> {_rich_escape(acpp_path)}" if acpp_ok else "AdaptiveCpp (acpp)"),
+        ("oneapi",      oneapi_ok, f"Intel oneAPI DPC++ (icx/icpx) -> {_rich_escape(oneapi_bin)}" if oneapi_ok and oneapi_bin else "Intel oneAPI DPC++ (icx/icpx)"),
     ]
     if gpu:
         nvcc_bin = shutil.which("nvcc") or (_first_glob(_NVCC_GLOBS_LINUX) if not win else "")
         nvcc_ok = bool(nvcc_bin) and binary_works(nvcc_bin)
-        detail = f"NVIDIA CUDA toolkit (nvcc) [{nvcc_bin}]" if nvcc_ok else "NVIDIA CUDA toolkit (nvcc)"
+        detail = (f"NVIDIA CUDA toolkit (nvcc) -> {_rich_escape(nvcc_bin)}" if nvcc_ok
+                  else "NVIDIA CUDA toolkit (nvcc)")
         rows.append(("cuda", nvcc_ok, detail))
     return rows
 

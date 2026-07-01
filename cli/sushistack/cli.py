@@ -88,18 +88,19 @@ def install_cli(
     modules: List[str] = typer.Argument(
         ..., help="Modules whose CLI to install: sushiruntime | sushiengine | "
                   "sushiai | sushiblas | all."),
-    editable: bool = typer.Option(
-        True, "--editable/--no-editable",
-        help="Install editable (default) so edits in the checkout apply live."),
 ):
     """Install a module's developer CLI (`sr`, `se`) into an isolated pipx venv.
 
     The single install seam for the stack: no module ships its own bootstrap
     script. This installs the module's [cyan]cli/[/cyan] package and injects the
     shared [cyan]sushicli[/cyan] presentation layer from its sibling checkout.
+
+    Always installed editable, against the checkout it was invoked from -- a
+    non-editable install would freeze the CLI at whatever revision existed at
+    install time, so `git pull`s on the checkout would silently stop reaching it.
     """
     from .services import cli_install as cli_install_svc
-    raise typer.Exit(cli_install_svc.install_cli(modules, editable=editable))
+    raise typer.Exit(cli_install_svc.install_cli(modules))
 
 
 @app.command("update")

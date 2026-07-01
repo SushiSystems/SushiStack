@@ -2,12 +2,16 @@
 """Install the SushiStack `ss` CLI.
 
 Usage:
-    python cli/install.py            # install / upgrade
-    python cli/install.py --editable # editable (dev) install
+    python cli/install.py            # install / upgrade (always editable)
     python cli/install.py --uninstall
 
 Strategy:
   * All platforms -> pipx (isolated, puts `ss` on PATH; pipx is bootstrapped if absent).
+  * Always installed --editable, against the workspace checkout at REPO_ROOT. `ss`
+    is one half of a self-updating pair with `ss sync`/`ss update` (which pull this
+    same checkout) -- a non-editable install would silently freeze `ss` at whatever
+    revision was on disk when it was first installed, so every later fix would need
+    a manual reinstall to take effect. There is no non-editable mode to opt into.
 
 The CLI package directory is located automatically (the folder holding
 pyproject.toml), so renaming the `cli/` folder later does not break this script.
@@ -96,15 +100,12 @@ def ensure_pipx() -> str:
 	return f"{sys.executable} -m pipx"
 
 
-def install(editable: bool) -> int:
+def install() -> int:
 	pkg_dir = find_package_dir()
 	sushicli_dir = find_sushicli_dir()
 
 	pipx = ensure_pipx().split()
-	cmd = [*pipx, "install", "--force", str(pkg_dir)]
-	if editable:
-		cmd.insert(cmd.index("install") + 1, "--editable")
-	rc = run(cmd)
+	rc = run([*pipx, "install", "--force", "--editable", str(pkg_dir)])
 	if rc == 0:
 		# sushicli isn't a resolvable pip dependency (see pyproject.toml); inject
 		# it into the venv pipx just created, always editable so future sushicli
@@ -127,12 +128,10 @@ def uninstall() -> int:
 
 def main() -> None:
 	parser = argparse.ArgumentParser(description="Install the SushiStack `ss` CLI.")
-	parser.add_argument("--editable", action="store_true",
-	                    help="Editable/development install.")
 	parser.add_argument("--uninstall", action="store_true",
 	                    help="Uninstall the CLI instead of installing.")
 	args = parser.parse_args()
-	sys.exit(uninstall() if args.uninstall else install(args.editable))
+	sys.exit(uninstall() if args.uninstall else install())
 
 
 if __name__ == "__main__":
