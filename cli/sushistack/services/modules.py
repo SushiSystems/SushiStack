@@ -181,7 +181,7 @@ def init() -> int:
 
     deps_dir().mkdir(parents=True, exist_ok=True)
     console.info(f"Dependencies will install into: {deps_dir()}")
-    console.info("Next: `ss install` to provision deps, then `ss add runtime`.")
+    console.info("Next: `ss install` to provision deps, then `ss add sushiruntime`.")
     return 0
 
 
@@ -263,7 +263,7 @@ def update(names: list[str] | None) -> int:
             console.error(f"{name}: update failed.")
             failed = True
     if not any_present:
-        console.info("No modules present yet. Add one with `ss add runtime`.")
+        console.info("No modules present yet. Add one with `ss add sushiruntime`.")
     return 1 if failed else 0
 
 
