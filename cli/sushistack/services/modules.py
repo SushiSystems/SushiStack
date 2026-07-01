@@ -9,7 +9,9 @@ and updating modules, and reporting status — while the dependency engine in
 
 from __future__ import annotations
 
+import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -137,6 +139,81 @@ def _run_git(args: list[str], cwd: Path) -> int:
         return 1
 
 
+def _pipx_cmd() -> list[str] | None:
+    """Return a command that runs pipx, or None if pipx can't be found.
+
+    `ss` itself was installed by pipx, so pipx is normally on PATH; fall back to
+    `python -m pipx` under whichever interpreter has it. We never sys.executable
+    here — that is `ss`'s own isolated pipx venv, which has no pipx module.
+    """
+    exe = shutil.which("pipx")
+    if exe:
+        return [exe]
+    for py in ("python3", "python"):
+        found = shutil.which(py)
+        if found and subprocess.run(
+            [found, "-m", "pipx", "--version"], capture_output=True
+        ).returncode == 0:
+            return [found, "-m", "pipx"]
+    return None
+
+
+def _cli_package_name(cli_dir: Path, module: str) -> str:
+    """Read the CLI's distribution name from pyproject, else fall back to <name>-cli."""
+    try:
+        if sys.version_info >= (3, 11):
+            import tomllib as toml
+        else:
+            import tomli as toml  # type: ignore[no-redirect]
+        with (cli_dir / "pyproject.toml").open("rb") as fh:
+            name = toml.load(fh).get("project", {}).get("name")
+        if name:
+            return str(name)
+    except Exception:
+        pass
+    return f"{module}-cli"
+
+
+def _install_module_cli(name: str, dest: Path, root: Path) -> bool:
+    """Install a cloned module's own CLI (`sr`, `se`, …) so it is ready to use.
+
+    Mirrors how the umbrella installs its own `ss` CLI: pipx-install the module's
+    `cli/` package, then inject the shared sushicli presentation layer (which is
+    not a resolvable pip dependency). Best-effort — a module without a `cli/`
+    package, or a pipx we can't locate, is a warning, not a hard failure.
+    """
+    cli_dir = dest / "cli"
+    if not (cli_dir / "pyproject.toml").is_file():
+        console.info(f"{name}: no cli/ package to install; skipping CLI install.")
+        return True
+
+    pipx = _pipx_cmd()
+    if pipx is None:
+        console.warn(f"{name}: pipx not found; skipping CLI install. Install it "
+                     f"later with `pipx install {cli_dir}`.")
+        return False
+
+    console.info(f"{name}: installing its CLI with pipx ({cli_dir}).")
+    if subprocess.run([*pipx, "install", "--force", str(cli_dir)]).returncode != 0:
+        console.error(f"{name}: CLI install failed.")
+        return False
+
+    # sushicli isn't published to any index, so pipx can't resolve it as a normal
+    # dependency; inject it (editable) into the venv pipx just created.
+    cli_shared = sushicli_dir(root)
+    if cli_shared is None:
+        console.warn(f"{name}: sushicli checkout not found; the CLI may fail to "
+                     "start. Fetch it into the workspace or `ss link sushicli <path>`.")
+        return False
+    pkg = _cli_package_name(cli_dir, name)
+    if subprocess.run(
+        [*pipx, "inject", pkg, "--editable", str(cli_shared)]
+    ).returncode != 0:
+        console.warn(f"{name}: failed to inject sushicli into {pkg}.")
+        return False
+    return True
+
+
 def _resolve_names(names: list[str] | None) -> list[str] | None:
     """Expand a user module list ('all' or names) to concrete module names.
 
@@ -198,16 +275,21 @@ def add(names: list[str] | None) -> int:
     for name in resolved:
         if name in linked:
             console.info(f"{name}: linked to {linked[name]} (use `ss link` to change); skipping clone.")
+            _install_module_cli(name, module_dest(root, name), root)
             continue
         mod = MODULES[name]
         dest = root / mod.directory
         if (dest / ".git").is_dir():
             console.info(f"{name}: already cloned at {dest}")
+            _install_module_cli(name, dest, root)
             continue
         console.info(f"{name}: cloning {mod.repo} -> {dest}")
         if _run_git(["clone", mod.repo, str(dest)], cwd=root) != 0:
             console.error(f"{name}: clone failed.")
             failed = True
+            continue
+        # Install the module's own CLI (sr/se/…) so it's usable right after add.
+        _install_module_cli(name, dest, root)
     if failed:
         return 1
     console.success("Modules ready. Build them with their own CLI (`sr`, `se`).")

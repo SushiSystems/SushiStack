@@ -26,6 +26,7 @@ from .package_managers import (
     LinuxPackageManager,
     WINGET_ID_TO_CMD,
     _tools_dir,
+    ensure_intel_oneapi_repo,
     refresh_windows_path,
 )
 from .pipeline import InstallContext, Step, StepResult
@@ -361,14 +362,21 @@ class InstallDepsStep(Step):
 
         self._install_toolchains(ctx, mgr=mgr, vcpkg=None)
 
-        # Intel oneAPI DPC++ — opt-in (--oneapi). Mirrors the Dockerfile's
-        # WITH_ONEAPI apt route; needs the Intel oneAPI apt repo configured.
+        # Intel oneAPI DPC++ — installed by default (part of "everything"), like
+        # the Dockerfile's oneAPI apt route. The compiler package lives only in
+        # Intel's apt repo, so configure that repo first (mirroring the Dockerfile)
+        # and then install; `mgr.install` runs `apt-get update` so the new repo is
+        # picked up. Failure is non-fatal: intel-llvm/AdaptiveCpp already provide a
+        # working SYCL compiler, so a missing oneAPI must not fail the whole run.
         if ctx.oneapi and mgr.name == "apt":
-            console.info("oneAPI: installing intel-oneapi-compiler-dpcpp-cpp "
-                         "(requires the Intel oneAPI apt repository).")
-            mgr.install(["intel-oneapi-compiler-dpcpp-cpp"], ctx.dry_run)
+            console.info("oneAPI: configuring the Intel apt repository and installing "
+                         "intel-oneapi-compiler-dpcpp-cpp.")
+            if ensure_intel_oneapi_repo(ctx.dry_run):
+                if not mgr.install(["intel-oneapi-compiler-dpcpp-cpp"], ctx.dry_run):
+                    console.warn("oneAPI compiler install failed; continuing "
+                                 "(intel-llvm/AdaptiveCpp remain available).")
         elif ctx.oneapi:
-            console.warn(f"--oneapi on {mgr.name} is not automated; install the "
+            console.warn(f"oneAPI on {mgr.name} is not automated; install the "
                          "Intel oneAPI DPC++ compiler manually.")
         return StepResult.OK if ok else StepResult.FAILED
 

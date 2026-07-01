@@ -113,6 +113,46 @@ def _tools_dir() -> Path:
     return deps_dir() / "tools"
 
 
+# Where the Intel oneAPI apt repo keyring and source list are written. Mirrors
+# the sushiruntime Dockerfile so `ss install` and the container agree.
+_ONEAPI_KEYRING = Path("/usr/share/keyrings/oneapi-archive-keyring.gpg")
+_ONEAPI_LIST = Path("/etc/apt/sources.list.d/oneAPI.list")
+_ONEAPI_KEY_URL = (
+    "https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB"
+)
+
+
+def ensure_intel_oneapi_repo(dry_run: bool) -> bool:
+    """Configure the Intel oneAPI apt repository (Debian/Ubuntu only).
+
+    ``intel-oneapi-compiler-dpcpp-cpp`` lives only in Intel's own apt repo, not in
+    the stock Ubuntu archive, so a plain ``apt-get install`` cannot find it. This
+    adds the keyring + source list exactly as the sushiruntime Dockerfile does,
+    making the default `ss install` provision oneAPI on Linux without any manual
+    steps. Idempotent: skips when both files already exist.
+    """
+    if _ONEAPI_KEYRING.is_file() and _ONEAPI_LIST.is_file():
+        console.info("Intel oneAPI apt repository already configured.")
+        return True
+    sudo = "" if _is_root() else "sudo "
+    key_cmd = f"curl -fsSL {_ONEAPI_KEY_URL} | {sudo}gpg --dearmor -o {_ONEAPI_KEYRING}"
+    list_cmd = (
+        f'echo "deb [signed-by={_ONEAPI_KEYRING}] '
+        f'https://apt.repos.intel.com/oneapi all main" | {sudo}tee {_ONEAPI_LIST}'
+    )
+    console.command(key_cmd)
+    console.command(list_cmd)
+    if dry_run:
+        console.info("(dry-run) not executed")
+        return True
+    for cmd in (key_cmd, list_cmd):
+        if subprocess.run(["bash", "-c", cmd]).returncode != 0:
+            console.error("Failed to configure the Intel oneAPI apt repository "
+                          "(need curl and gpg). Install oneAPI manually or skip it.")
+            return False
+    return True
+
+
 def _gh_latest_asset(repo: str, asset_glob: str) -> str:
     """Return the download URL for the first release asset matching *asset_glob*."""
     url = f"https://api.github.com/repos/{repo}/releases/latest"
