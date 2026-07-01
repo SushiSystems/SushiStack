@@ -85,6 +85,23 @@ fi
 cd "$WORKSPACE_DIR"
 log "Workspace: $WORKSPACE_DIR"
 
+# Ensure the shared CLI presentation layer (sushicli) is present. It is not
+# published to any index, so every Sushi* CLI injects it from a checkout. The
+# umbrella fetches it into the workspace so an end user never handles it; a
+# developer can override with SUSHICLI_DIR or `ss link sushicli <path>`.
+SUSHICLI_REPO_URL="${SUSHICLI_REPO_URL:-https://github.com/sushisystems/sushicli.git}"
+if [ -n "${SUSHICLI_DIR:-}" ]; then
+  log "Using sushicli from SUSHICLI_DIR: $SUSHICLI_DIR"
+elif [ -d "$WORKSPACE_DIR/sushicli/.git" ]; then
+  log "Updating sushicli in workspace"
+  git -C "$WORKSPACE_DIR/sushicli" pull --ff-only || log "sushicli pull skipped"
+elif [ -f "$WORKSPACE_DIR/../sushicli/pyproject.toml" ]; then
+  log "Using sibling sushicli checkout: $WORKSPACE_DIR/../sushicli"
+else
+  log "Cloning sushicli -> $WORKSPACE_DIR/sushicli"
+  git clone "$SUSHICLI_REPO_URL" "$WORKSPACE_DIR/sushicli"
+fi
+
 # Install the ss CLI.
 log "Installing the ss CLI..."
 python3 cli/install.py

@@ -28,21 +28,24 @@ def find_sushicli_dir() -> Path:
 	"""Locate the sushicli sibling checkout (shared CLI presentation layer).
 
 	Not published to any index, so pipx's isolated venv can't resolve it as a
-	normal dependency — it's injected from source instead. Override with
-	SUSHICLI_DIR if the checkout isn't a sibling of this repo.
+	normal dependency — it's injected from source instead. Resolution order:
+	SUSHICLI_DIR override, then the copy the bootstrap fetches into the workspace
+	(<workspace>/sushicli), then a sibling checkout (a developer's layout). The
+	bootstrap clones it into the workspace so an end user never deals with it.
 	"""
 	import os
 
 	override = os.environ.get("SUSHICLI_DIR")
 	if override:
 		return Path(override)
-	candidate = REPO_ROOT.parent / "sushicli"
-	if not (candidate / "pyproject.toml").is_file():
-		sys.exit(
-			"[ERROR] sushicli checkout not found at "
-			f"{candidate}. Clone it next to this repo, or set SUSHICLI_DIR."
-		)
-	return candidate
+	for candidate in (REPO_ROOT / "sushicli", REPO_ROOT.parent / "sushicli"):
+		if (candidate / "pyproject.toml").is_file():
+			return candidate
+	sys.exit(
+		"[ERROR] sushicli checkout not found in the workspace "
+		f"({REPO_ROOT / 'sushicli'}) or next to it. The bootstrap normally "
+		"fetches it; clone it there, or set SUSHICLI_DIR."
+	)
 
 
 def find_package_dir() -> Path:

@@ -121,6 +121,23 @@ if ($ScriptDir -and (Test-Path (Join-Path $ScriptDir "cli\manifests"))) {
 Set-Location $WorkspaceDir
 Info "Workspace: $WorkspaceDir"
 
+# Ensure the shared CLI presentation layer (sushicli) is present. It is not
+# published to any index, so every Sushi* CLI injects it from a checkout. The
+# umbrella fetches it into the workspace so an end user never handles it; a
+# developer can override with SUSHICLI_DIR or `ss link sushicli <path>`.
+$SushicliRepo = if ($env:SUSHICLI_REPO_URL) { $env:SUSHICLI_REPO_URL } else { "https://github.com/sushisystems/sushicli.git" }
+if ($env:SUSHICLI_DIR) {
+    Info "Using sushicli from SUSHICLI_DIR: $($env:SUSHICLI_DIR)"
+} elseif (Test-Path (Join-Path $WorkspaceDir "sushicli\.git")) {
+    Info "Updating sushicli in workspace"
+    git -C (Join-Path $WorkspaceDir "sushicli") pull --ff-only
+} elseif (Test-Path (Join-Path $WorkspaceDir "..\sushicli\pyproject.toml")) {
+    Info "Using sibling sushicli checkout"
+} else {
+    Info "Cloning sushicli -> $(Join-Path $WorkspaceDir 'sushicli')"
+    git clone $SushicliRepo (Join-Path $WorkspaceDir "sushicli")
+}
+
 # Install the ss CLI.
 Info "Installing the ss CLI..."
 python cli/install.py

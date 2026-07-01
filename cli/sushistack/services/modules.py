@@ -44,12 +44,33 @@ MODULES: dict[str, Module] = {
     "sushiblas":    Module("sushiblas",    "https://github.com/sushisystems/sushiblas.git",    "sushiblas"),
 }
 
+# sushicli is the shared CLI presentation layer, not a stack build module: it
+# ships no dependency fragment, is never built, and stays out of MODULES so it is
+# excluded from `ss add all`, readiness, and dependency aggregation. It is tooling
+# the umbrella fetches automatically. A developer can still point the workspace at
+# their own checkout with `ss link sushicli <path>`; the bootstrap otherwise
+# clones it into <workspace>/sushicli so an end user never handles it.
+SUSHICLI_NAME = "sushicli"
+SUSHICLI_REPO = "https://github.com/sushisystems/sushicli.git"
+
+
+# Short aliases for the module names, matching each module's own CLI program
+# name (sushiruntime -> `sr`, sushiengine -> `se`, ...), so `ss add sr` works
+# the same as `ss add sushiruntime`.
+_ALIASES: dict[str, str] = {
+    "sr": "sushiruntime",
+    "se": "sushiengine",
+    "sa": "sushiai",
+    "sb": "sushiblas",
+}
+
 # Lines `ss init` ensures are present in the workspace .gitignore: the shared
 # dependency tree and every module checkout are build artifacts of the workspace,
 # not part of it.
 _GITIGNORE_LINES = [
     "# Managed by `ss init`: shared dependencies and cloned modules are not tracked.",
     "/dependencies/",
+    f"/{SUSHICLI_NAME}/",
     *(f"/{m.directory}/" for m in MODULES.values()),
     "/cli/config.local.toml",
     "/cli/modules.local.toml",
@@ -66,6 +87,27 @@ def module_dest(root: Path, name: str) -> Path:
     if linked:
         return Path(linked)
     return root / MODULES[name].directory
+
+
+def sushicli_dir(root: Path) -> Path | None:
+    """Resolve the sushicli checkout to inject, or None when it cannot be found.
+
+    Order: ``SUSHICLI_DIR`` env, then a developer's ``ss link sushicli`` path,
+    then the ``<workspace>/sushicli`` the bootstrap fetches, then a sibling
+    checkout. Only a directory holding ``pyproject.toml`` counts.
+    """
+    import os
+
+    override = os.environ.get("SUSHICLI_DIR")
+    candidates = [Path(override)] if override else []
+    linked = registered_modules().get(SUSHICLI_NAME)
+    if linked:
+        candidates.append(Path(linked))
+    candidates += [root / SUSHICLI_NAME, root.parent / SUSHICLI_NAME]
+    for cand in candidates:
+        if (cand / "pyproject.toml").is_file():
+            return cand
+    return None
 
 
 def _write_link(name: str, path: Path) -> None:
@@ -102,12 +144,14 @@ def _resolve_names(names: list[str] | None) -> list[str] | None:
     """
     if not names or names == ["all"]:
         return list(MODULES)
-    unknown = [n for n in names if n not in MODULES]
+    resolved = [_ALIASES.get(n, n) for n in names]
+    unknown = [n for n in resolved if n not in MODULES]
     if unknown:
         console.error(f"Unknown module(s): {', '.join(unknown)}. "
-                      f"Choose from: {', '.join(MODULES)} (or 'all').")
+                      f"Choose from: {', '.join(MODULES)} (or their aliases: "
+                      f"{', '.join(_ALIASES)}; or 'all').")
         return None
-    return names
+    return resolved
 
 
 def init() -> int:
@@ -178,8 +222,9 @@ def link(name: str, path: str) -> int:
     The module's own CLI still resolves the shared deps via SUSHISTACK_HOME.
     """
     console.header("SushiStack Link")
-    if name not in MODULES:
-        console.error(f"Unknown module '{name}'. Choose from: {', '.join(MODULES)}.")
+    if name not in MODULES and name != SUSHICLI_NAME:
+        console.error(f"Unknown module '{name}'. Choose from: "
+                      f"{', '.join(MODULES)}, or {SUSHICLI_NAME}.")
         return 1
     target = Path(path).expanduser().resolve()
     if not target.is_dir():

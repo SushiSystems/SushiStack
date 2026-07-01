@@ -10,7 +10,6 @@ checkout, exactly as `ss` itself is bootstrapped.
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -22,7 +21,7 @@ except ModuleNotFoundError:  # Python 3.10 fallback
 
 from .. import console
 from ..config import workspace_root
-from .modules import _resolve_names, module_dest
+from .modules import _resolve_names, module_dest, sushicli_dir
 
 
 def _run(cmd: list[str]) -> int:
@@ -36,7 +35,12 @@ def _ensure_pipx() -> list[str]:
                       capture_output=True).returncode == 0:
         return [sys.executable, "-m", "pipx"]
     console.info("pipx not found; installing it with pip ...")
-    cmd = [sys.executable, "-m", "pip", "install", "--user", "pipx"]
+    cmd = [sys.executable, "-m", "pip", "install", "pipx"]
+    in_venv = sys.prefix != getattr(sys, "base_prefix", sys.prefix)
+    if not in_venv:
+        # --user only makes sense (and is only valid) outside a venv/conda env,
+        # where user site-packages are visible; inside one, pip rejects it.
+        cmd.append("--user")
     pip_help = subprocess.run([sys.executable, "-m", "pip", "install", "--help"],
                               capture_output=True, text=True).stdout
     if "--break-system-packages" in pip_help:
@@ -45,23 +49,6 @@ def _ensure_pipx() -> list[str]:
         raise RuntimeError("Failed to install pipx.")
     _run([sys.executable, "-m", "pipx", "ensurepath"])
     return [sys.executable, "-m", "pipx"]
-
-
-def _find_sushicli(candidates: list[Path]) -> Path | None:
-    """Locate the sushicli sibling checkout (shared CLI presentation layer).
-
-    Honours ``SUSHICLI_DIR`` first, then looks for a ``sushicli`` directory next
-    to the workspace and next to each module checkout — all of which live under
-    the same projects folder in the usual layout.
-    """
-    override = os.environ.get("SUSHICLI_DIR")
-    if override:
-        return Path(override)
-    for base in candidates:
-        cand = base / "sushicli"
-        if (cand / "pyproject.toml").is_file():
-            return cand
-    return None
 
 
 def _dist_name(pkg_dir: Path) -> str:
@@ -78,12 +65,12 @@ def install_cli(names: list[str] | None, editable: bool = True) -> int:
         return 1
     root = workspace_root()
 
-    sushicli = _find_sushicli([root, root.parent]
-                              + [module_dest(root, n).parent for n in resolved])
+    sushicli = sushicli_dir(root)
     if sushicli is None:
         console.error(
-            "sushicli checkout not found next to the workspace or the modules. "
-            "Clone it there, or set SUSHICLI_DIR.")
+            "sushicli checkout not found in the workspace, a linked path, or a "
+            "sibling. The bootstrap normally fetches it; run it again, "
+            "`ss link sushicli <path>`, or set SUSHICLI_DIR.")
         return 1
 
     try:
