@@ -74,6 +74,45 @@ def _discover_installed_toolchains(cfg: Config, values: dict[str, str]) -> None:
             break
 
 
+def toolchain_status(cfg: Config, gpu: bool) -> list[tuple[str, bool, str]]:
+    """Installed/missing status for each SYCL toolchain (and CUDA if *gpu*).
+
+    One row per toolchain: ``(name, present, detail)``. Lives here rather than
+    on ``DetectStep`` because it is pure probing — the same kind of "where does
+    this tool live and does it run" question the rest of this module answers —
+    and keeping it here lets any caller (not just the detect step) ask the same
+    question without going through the pipeline.
+    """
+    win = cfg.platform == "windows"
+    base = _toolchains_dir()
+
+    clang = base / "llvm-sycl" / "bin" / ("clang++.exe" if win else "clang++")
+    intel_ok = clang.is_file() and binary_works(str(clang))
+
+    acpp_path = ""
+    for name in ("acpp.bat", "acpp"):
+        cand = base / "adaptivecpp" / "bin" / name
+        if cand.is_file():
+            acpp_path = str(cand)
+            break
+    acpp_ok = bool(acpp_path) and binary_works(acpp_path)
+
+    # oneAPI installs system-wide (off the deps tree). Trust the same probe
+    # the active-compiler row uses so a glob-discovered icx-cl/icpx counts.
+    active, _ = find_sycl_compiler(cfg)
+    oneapi_ok = (active in ("icx-cl", "icpx")
+                 or any(binary_works(c) for c in ("icx-cl", "icpx", "icx")))
+
+    rows = [
+        ("intel-llvm",  intel_ok, "intel/llvm SYCL toolchain (clang++ -fsycl)"),
+        ("adaptivecpp", acpp_ok,  "AdaptiveCpp (acpp)"),
+        ("oneapi",      oneapi_ok, "Intel oneAPI DPC++ (icx/icpx)"),
+    ]
+    if gpu:
+        rows.append(("cuda", binary_works("nvcc"), "NVIDIA CUDA toolkit (nvcc)"))
+    return rows
+
+
 def binary_works(cmd: str) -> bool:
     """Return True only if *cmd* is on PATH (or an absolute path) and runs cleanly.
 

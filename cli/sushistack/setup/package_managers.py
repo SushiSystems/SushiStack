@@ -5,9 +5,13 @@ Steps depend only on :class:`IPackageManager`, so adding a platform or tool
 means adding a class here — no step changes required (Open-Closed + Dependency
 Inversion).
 
-Linux managers expose :meth:`translate_apt` so the step can convert apt-format
-package names from ``dependencies.toml`` into distro-native names without
-widening the manifest schema.
+:class:`LinuxPackageManager` adds :meth:`translate_apt` on top of the base
+interface so a step can convert apt-format package names from
+``dependencies.toml`` into distro-native names without widening the manifest
+schema. Windows managers (winget/vcpkg/direct-download) never need this
+translation, so it lives on the Linux-only subtype rather than on
+``IPackageManager`` itself (Interface Segregation) — a Windows manager simply
+has no such method rather than inheriting a no-op it can never meaningfully use.
 """
 
 from __future__ import annotations
@@ -350,25 +354,34 @@ class IPackageManager(ABC):
     def install(self, pkgs: list[str], dry_run: bool) -> bool:
         """Install the given packages. Return True on success."""
 
-    def translate_apt(self, apt_pkgs: list[str]) -> list[str]:
-        """Convert apt-format package names to this manager's native names.
-
-        The default implementation is an identity pass (apt names work as-is).
-        Non-apt managers override this.
-        """
-        return apt_pkgs
-
     def remove(self, pkgs: list[str], dry_run: bool) -> bool:
         """Remove the given packages. Return True on success (best-effort)."""
         console.warn(f"{self.name}: remove not implemented, skipping.")
         return True
 
 
+class LinuxPackageManager(IPackageManager):
+    """A package manager that speaks apt-format names as its lingua franca.
+
+    ``dependencies.toml`` lists Linux packages in apt's naming (the most common
+    distro), so every Linux manager needs a way to translate them into its own
+    native names; apt itself just passes them through.
+    """
+
+    def translate_apt(self, apt_pkgs: list[str]) -> list[str]:
+        """Convert apt-format package names to this manager's native names.
+
+        The default implementation is an identity pass (apt names work as-is,
+        since apt itself is the reference format). Non-apt managers override this.
+        """
+        return apt_pkgs
+
+
 # --------------------------------------------------------------------------- #
 # Linux managers
 # --------------------------------------------------------------------------- #
 
-class AptManager(IPackageManager):
+class AptManager(LinuxPackageManager):
     """Debian/Ubuntu apt."""
 
     name = "apt"
@@ -403,7 +416,7 @@ class AptManager(IPackageManager):
         return rc == 0
 
 
-class DnfManager(IPackageManager):
+class DnfManager(LinuxPackageManager):
     """Fedora / RHEL dnf."""
 
     name = "dnf"
@@ -438,7 +451,7 @@ class DnfManager(IPackageManager):
         return rc == 0
 
 
-class YumManager(IPackageManager):
+class YumManager(LinuxPackageManager):
     """Legacy RHEL/CentOS yum."""
 
     name = "yum"
@@ -473,7 +486,7 @@ class YumManager(IPackageManager):
         return rc == 0
 
 
-class PacmanManager(IPackageManager):
+class PacmanManager(LinuxPackageManager):
     """Arch Linux pacman."""
 
     name = "pacman"
@@ -508,7 +521,7 @@ class PacmanManager(IPackageManager):
         return rc == 0
 
 
-class ZypperManager(IPackageManager):
+class ZypperManager(LinuxPackageManager):
     """openSUSE zypper."""
 
     name = "zypper"

@@ -47,10 +47,11 @@ class InstallContext:
     # unconditionally, mirroring the Dockerfile's WITH_ONEAPI=0 default.
     oneapi: bool = False
 
-    # Which SYCL toolchains the active profile provisions. Defaults reproduce the
-    # historical "normal" profile (intel-llvm + AdaptiveCpp); ``factory`` overrides
-    # them from PROFILE_SPECS. ``active_toolchain`` is the one ConfigureStep pins as
-    # the default for subsequent builds (None => leave the existing choice alone).
+    # Which SYCL toolchains this run provisions. Default to both (intel-llvm +
+    # AdaptiveCpp); ``ss install --customize`` narrows this via ``selection`` in
+    # ``factory.build_pipeline``. ``active_toolchain`` is the one ConfigureStep
+    # pins as the default for subsequent builds (None => leave the existing
+    # choice alone).
     install_intel_llvm: bool = True
     install_acpp: bool = True
     active_toolchain: str | None = None
@@ -119,14 +120,14 @@ class InstallPipeline:
             console=console.console,
             transient=False,
         ) as progress:
-            task = progress.add_task("[bold cyan]Starting Setup...", total=len(self._steps))
-            
+            task = progress.add_task("[header]Starting Setup...", total=len(self._steps))
+
             for step in self._steps:
-                progress.update(task, description=f"[bold cyan]Running Setup...[/bold cyan] [yellow]({step.name})[/yellow]")
+                progress.update(task, description=f"[header]Running Setup...[/header] [warn]({step.name})[/warn]")
                 console.header(f"setup: {step.name}")
                 result = step.run(ctx)
                 if result is StepResult.FAILED:
-                    progress.update(task, description=f"[bold red]Setup failed at '{step.name}'[/bold red]")
+                    progress.update(task, description=f"[error]Setup failed at '{step.name}'[/error]")
                     console.error(f"Step '{step.name}' failed; stopping pipeline.")
                     return False
                 if result is StepResult.SKIPPED:
@@ -134,6 +135,6 @@ class InstallPipeline:
                 else:
                     console.success(f"Step '{step.name}' done.")
                 progress.advance(task)
-            
-            progress.update(task, description="[bold green]Setup Complete![/bold green]")
+
+            progress.update(task, description="[success]Setup Complete![/success]")
         return True
