@@ -98,7 +98,7 @@ def prime_sudo() -> None:
     # Print our own explicit prompt (and pass -p so sudo repeats a clear one on a
     # retry): under some terminals sudo's default "[sudo] password for …:" line
     # gets swallowed, leaving the user staring at a blank cursor.
-    console.info("Some dependencies need administrator (sudo) access.")
+    console.warn("Administrator (sudo) access needed — enter your password below.")
     try:
         subprocess.run(["sudo", "-p", "[sudo] password for %p: ", "-v"], stdin=tty)
     except OSError as exc:
