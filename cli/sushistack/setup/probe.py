@@ -30,6 +30,18 @@ _ICX_GLOBS = [
     r"C:/Program Files (x86)/Intel/oneAPI/compiler/*/bin/icx-cl.exe",
     r"C:/Program Files/Intel/oneAPI/compiler/*/bin/icx-cl.exe",
 ]
+# Linux well-known install locations. Neither the apt CUDA toolkit nor oneAPI
+# add themselves to PATH: nvcc lands under /usr/local/cuda*, and icpx/icx under
+# /opt/intel/oneapi/compiler/*/bin (normally exposed only after `setvars.sh`).
+# The probe checks these directly so a fresh `ss install` reports them present.
+_NVCC_GLOBS_LINUX = [
+    "/usr/local/cuda/bin/nvcc",
+    "/usr/local/cuda-*/bin/nvcc",
+]
+_ICX_GLOBS_LINUX = [
+    "/opt/intel/oneapi/compiler/*/bin/icpx",
+    "/opt/intel/oneapi/compiler/*/bin/icx",
+]
 
 
 def _first_glob(patterns: list[str]) -> str:
@@ -100,8 +112,11 @@ def toolchain_status(cfg: Config, gpu: bool) -> list[tuple[str, bool, str]]:
     # oneAPI installs system-wide (off the deps tree). Trust the same probe
     # the active-compiler row uses so a glob-discovered icx-cl/icpx counts.
     active, _ = find_sycl_compiler(cfg)
+    oneapi_bin = (_first_glob(_ICX_GLOBS) or shutil.which("icx-cl")
+                  or shutil.which("icpx") or shutil.which("icx")
+                  or (_first_glob(_ICX_GLOBS_LINUX) if not win else ""))
     oneapi_ok = (active in ("icx-cl", "icpx")
-                 or any(binary_works(c) for c in ("icx-cl", "icpx", "icx")))
+                 or (bool(oneapi_bin) and binary_works(oneapi_bin)))
 
     rows = [
         ("intel-llvm",  intel_ok, "intel/llvm SYCL toolchain (clang++ -fsycl)"),
@@ -109,7 +124,9 @@ def toolchain_status(cfg: Config, gpu: bool) -> list[tuple[str, bool, str]]:
         ("oneapi",      oneapi_ok, "Intel oneAPI DPC++ (icx/icpx)"),
     ]
     if gpu:
-        rows.append(("cuda", binary_works("nvcc"), "NVIDIA CUDA toolkit (nvcc)"))
+        nvcc_bin = shutil.which("nvcc") or (_first_glob(_NVCC_GLOBS_LINUX) if not win else "")
+        rows.append(("cuda", bool(nvcc_bin) and binary_works(nvcc_bin),
+                     "NVIDIA CUDA toolkit (nvcc)"))
     return rows
 
 
