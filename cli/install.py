@@ -16,36 +16,48 @@ pyproject.toml), so renaming the `cli/` folder later does not break this script.
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PACKAGE_NAME = "sushistack-cli"
+SUSHICLI_REPO_URL = "https://github.com/sushisystems/sushicli.git"
 
 
 def find_sushicli_dir() -> Path:
-	"""Locate the sushicli sibling checkout (shared CLI presentation layer).
+	"""Locate (or fetch) the sushicli checkout (shared CLI presentation layer).
 
 	Not published to any index, so pipx's isolated venv can't resolve it as a
 	normal dependency — it's injected from source instead. Resolution order:
-	SUSHICLI_DIR override, then the copy the bootstrap fetches into the workspace
-	(<workspace>/sushicli), then a sibling checkout (a developer's layout). The
-	bootstrap clones it into the workspace so an end user never deals with it.
+	SUSHICLI_DIR override, then the copy in the workspace (<workspace>/sushicli),
+	then a sibling checkout (a developer's layout). If none is present it is
+	cloned into the workspace so an end user never has to handle it — this makes
+	`python cli/install.py` self-contained regardless of how it was invoked.
 	"""
-	import os
-
 	override = os.environ.get("SUSHICLI_DIR")
 	if override:
 		return Path(override)
 	for candidate in (REPO_ROOT / "sushicli", REPO_ROOT.parent / "sushicli"):
 		if (candidate / "pyproject.toml").is_file():
 			return candidate
-	sys.exit(
-		"[ERROR] sushicli checkout not found in the workspace "
-		f"({REPO_ROOT / 'sushicli'}) or next to it. The bootstrap normally "
-		"fetches it; clone it there, or set SUSHICLI_DIR."
-	)
+	return clone_sushicli()
+
+
+def clone_sushicli() -> Path:
+	"""Clone sushicli into the workspace and return its path."""
+	target = REPO_ROOT / "sushicli"
+	repo_url = os.environ.get("SUSHICLI_REPO_URL", SUSHICLI_REPO_URL)
+	print(f"[INFO] sushicli not found; cloning {repo_url} -> {target}")
+	if run(["git", "clone", "--depth", "1", repo_url, str(target)]) != 0:
+		sys.exit(
+			"[ERROR] Failed to clone sushicli. Clone it into "
+			f"{target} manually, or set SUSHICLI_DIR to an existing checkout."
+		)
+	if not (target / "pyproject.toml").is_file():
+		sys.exit(f"[ERROR] Cloned sushicli but no pyproject.toml found in {target}.")
+	return target
 
 
 def find_package_dir() -> Path:
