@@ -396,16 +396,39 @@ def status() -> int:
     return 0
 
 
+def _self_update(root: Path, dry_run: bool) -> None:
+    """Fast-forward the SushiStack workspace repo itself (the ``ss`` source tree).
+
+    ``ss sync``/``ss update`` only pull the *modules* (sushiruntime, ...); the
+    workspace root — where `cli/` and its setup pipeline actually live — is a git
+    checkout too, and a stale one means every fix here (e.g. a CUDA pin change)
+    silently never reaches an editable-installed `ss` until someone thinks to
+    pull it by hand. Best-effort: a failure here must not block the rest of sync.
+    """
+    if not (root / ".git").is_dir():
+        return
+    if dry_run:
+        console.info(f"sushistack: (dry-run) would git pull ({root})")
+        return
+    console.info(f"sushistack: git pull ({root})")
+    if _run_git(["pull", "--ff-only"], cwd=root) != 0:
+        console.warn("sushistack: self-update failed; continuing with the "
+                      "current checkout. Pull it by hand if `ss` behaves stale.")
+
+
 def sync(dry_run: bool) -> int:
     """Bring the workspace to a working state in one shot.
 
     Provisions any missing dependencies (everything, like `ss install`), then
     fast-forwards every present module. Module cloning stays explicit (`ss add`)
-    so `sync` never pulls in repos the user did not ask for.
+    so `sync` never pulls in repos the user did not ask for. The workspace repo
+    itself (this CLI's own source) is updated first, so `ss install`'s pipeline
+    runs with today's fixes rather than whatever was checked out last.
     """
     from . import setup as setup_svc
 
     console.header("SushiStack Sync")
+    _self_update(workspace_root(), dry_run)
     rc = setup_svc.run("provision", dry_run=dry_run)
     if rc != 0:
         return rc
