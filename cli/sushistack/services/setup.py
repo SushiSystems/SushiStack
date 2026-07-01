@@ -53,6 +53,13 @@ def run(step: str = "all", dry_run: bool = False,
                 console.info("Skipping the LLVM download. Re-run `ss install` to retry, "
                              "or `ss install --customize` and deselect AdaptiveCpp.")
 
+    # Prime sudo up front (Linux, non-root) so the password prompt happens here,
+    # attached to the terminal, rather than being swallowed by the live progress
+    # spinner during `install-deps` (where it would just time out).
+    if not dry_run and not detect_only and not ctx.cfg.is_windows:
+        from ..setup.package_managers import prime_sudo
+        prime_sudo()
+
     ok = pipeline.run(ctx, show_progress=not detect_only)
     if ok:
         console.success("Inventory complete." if detect_only else "Install completed.")

@@ -21,6 +21,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import urllib.request
 import zipfile
@@ -60,6 +61,35 @@ def _is_root() -> bool:
         return os.geteuid() == 0  # type: ignore[attr-defined]
     except AttributeError:
         return False
+
+
+def prime_sudo() -> None:
+    """Prompt for the sudo password up front, before the progress spinner.
+
+    The install steps run `sudo apt-get ...` inside a live Rich progress display,
+    whose repaint thread fights sudo's own password prompt on the terminal — so
+    the prompt never shows and sudo times out. Priming the credential cache here
+    (a plain `sudo -v` attached directly to the terminal, no output capture) means
+    the later sudo calls reuse the cached timestamp and never need to prompt.
+
+    No-op when already root, when sudo is absent, or when there is no interactive
+    terminal to prompt on (e.g. `curl | bash`, where sudo could never prompt
+    anyway — the caller falls back to whatever the pipeline reports).
+    """
+    if os.name == "nt" or _is_root() or shutil.which("sudo") is None:
+        return
+    if not (sys.stdin and sys.stdin.isatty()):
+        console.warn(
+            "Not running in an interactive terminal, so sudo cannot ask for a "
+            "password. If dependency installation fails, run `ss install` "
+            "directly in a terminal (not piped) or pre-authorize with `sudo -v`."
+        )
+        return
+    console.info("Some dependencies need sudo. Please enter your password if prompted.")
+    try:
+        subprocess.run(["sudo", "-v"])
+    except OSError as exc:
+        console.warn(f"Could not prime sudo credentials: {exc}")
 
 
 def _tools_dir() -> Path:
