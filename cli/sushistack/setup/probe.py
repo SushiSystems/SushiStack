@@ -119,14 +119,15 @@ def toolchain_status(cfg: Config, gpu: bool) -> list[tuple[str, bool, str]]:
                  or (bool(oneapi_bin) and binary_works(oneapi_bin)))
 
     rows = [
-        ("intel-llvm",  intel_ok, "intel/llvm SYCL toolchain (clang++ -fsycl)"),
-        ("adaptivecpp", acpp_ok,  "AdaptiveCpp (acpp)"),
-        ("oneapi",      oneapi_ok, "Intel oneAPI DPC++ (icx/icpx)"),
+        ("intel-llvm",  intel_ok, f"intel/llvm SYCL toolchain (clang++ -fsycl) [{clang}]" if intel_ok else "intel/llvm SYCL toolchain (clang++ -fsycl)"),
+        ("adaptivecpp", acpp_ok,  f"AdaptiveCpp (acpp) [{acpp_path}]" if acpp_ok else "AdaptiveCpp (acpp)"),
+        ("oneapi",      oneapi_ok, f"Intel oneAPI DPC++ (icx/icpx) [{oneapi_bin}]" if oneapi_ok and oneapi_bin else "Intel oneAPI DPC++ (icx/icpx)"),
     ]
     if gpu:
         nvcc_bin = shutil.which("nvcc") or (_first_glob(_NVCC_GLOBS_LINUX) if not win else "")
-        rows.append(("cuda", bool(nvcc_bin) and binary_works(nvcc_bin),
-                     "NVIDIA CUDA toolkit (nvcc)"))
+        nvcc_ok = bool(nvcc_bin) and binary_works(nvcc_bin)
+        detail = f"NVIDIA CUDA toolkit (nvcc) [{nvcc_bin}]" if nvcc_ok else "NVIDIA CUDA toolkit (nvcc)"
+        rows.append(("cuda", nvcc_ok, detail))
     return rows
 
 

@@ -157,9 +157,14 @@ def _sudo_bash(cmd: str, dry_run: bool) -> bool:
 def ensure_cuda_toolkit(dry_run: bool) -> bool:
     """Install the NVIDIA CUDA toolkit from NVIDIA's official apt repo (Ubuntu/Debian).
 
-    Ubuntu's own ``nvidia-cuda-toolkit`` is 11.x, incompatible with the intel/llvm
-    nightly (needs 12.x), so we add NVIDIA's ``cuda-keyring`` network repo — the
-    method NVIDIA documents — and install ``cuda-toolkit``. Best-effort and
+    Ubuntu's own ``nvidia-cuda-toolkit`` is often years behind, so we add NVIDIA's
+    ``cuda-keyring`` network repo — the method NVIDIA documents — and install a
+    *pinned* ``cuda-toolkit-12-6``, not the unversioned ``cuda-toolkit`` meta-package.
+    NVIDIA has been dropping older GPU architectures from ptxas in newer major
+    releases (CUDA 13 removed Pascal/``sm_6x`` outright), and SushiRuntime's default
+    ``SR_CUDA_ARCH`` targets Pascal (61) — installing "latest" silently produces a
+    toolchain that reports present (`nvcc --version` succeeds) but fails at the
+    ptxas link step for anyone on Pascal/Maxwell/Volta hardware. Best-effort and
     non-fatal: a build can still run CPU-only (SPIR/OpenCL) without it.
     """
     if _binary_works("nvcc"):
@@ -178,7 +183,7 @@ def ensure_cuda_toolkit(dry_run: bool) -> bool:
         f"curl -fsSLO {keyring_url} && "
         f"{sudo}dpkg -i cuda-keyring_1.1-1_all.deb && "
         f"{sudo}apt-get update && "
-        f"{sudo}apt-get install -y cuda-toolkit"
+        f"{sudo}apt-get install -y cuda-toolkit-12-6"
     )
     if not _sudo_bash(steps, dry_run):
         console.warn("CUDA toolkit install failed. Install CUDA 12.x manually "
