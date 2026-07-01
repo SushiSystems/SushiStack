@@ -331,6 +331,12 @@ def update(names: list[str] | None) -> int:
         return 1
     root = workspace_root()
 
+    # The workspace repo itself (this CLI's own source, cli/ + setup pipeline) is
+    # a git checkout too. Pull it here so a single `ss update` reaches every fix,
+    # not just the ones in modules — otherwise an editable-installed `ss` goes
+    # stale until someone remembers to pull the umbrella by hand.
+    _self_update(root, dry_run=False)
+
     failed = False
     any_present = False
     for name in resolved:
@@ -419,19 +425,19 @@ def _self_update(root: Path, dry_run: bool) -> None:
 def sync(dry_run: bool) -> int:
     """Bring the workspace to a working state in one shot.
 
-    Provisions any missing dependencies (everything, like `ss install`), then
-    fast-forwards every present module. Module cloning stays explicit (`ss add`)
-    so `sync` never pulls in repos the user did not ask for. The workspace repo
-    itself (this CLI's own source) is updated first, so `ss install`'s pipeline
-    runs with today's fixes rather than whatever was checked out last.
+    Fast-forwards the workspace and every present module first (via `ss update`),
+    then provisions any missing dependencies (everything, like `ss install`) so
+    the provision pipeline runs with today's fixes rather than whatever was
+    checked out last. Module cloning stays explicit (`ss add`) so `sync` never
+    pulls in repos the user did not ask for.
     """
     from . import setup as setup_svc
 
     console.header("SushiStack Sync")
-    _self_update(workspace_root(), dry_run)
-    rc = setup_svc.run("provision", dry_run=dry_run)
+    if dry_run:
+        _self_update(workspace_root(), dry_run)
+        return setup_svc.run("provision", dry_run=dry_run)
+    rc = update(["all"])
     if rc != 0:
         return rc
-    if dry_run:
-        return 0
-    return update(["all"])
+    return setup_svc.run("provision", dry_run=dry_run)

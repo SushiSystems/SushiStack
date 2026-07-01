@@ -108,7 +108,7 @@ def update(
     modules: Optional[List[str]] = typer.Argument(
         None, help="Modules to update (omit for all present modules)."),
 ):
-    """Fast-forward (`git pull`) the present modules (cloned or linked)."""
+    """Fast-forward (`git pull`) the workspace and the present modules (cloned or linked)."""
     raise typer.Exit(modules_svc.update(modules))
 
 
