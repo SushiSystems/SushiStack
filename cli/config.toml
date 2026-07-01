@@ -1,4 +1,4 @@
-# SushiRuntime CLI configuration.
+# SushiStack CLI configuration.
 #
 # Layering (lowest -> highest precedence):
 #   built-in defaults  ->  this file  ->  config.local.toml  ->  SUSHI_* env vars  ->  CLI flags

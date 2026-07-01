@@ -78,19 +78,33 @@ class DetectStep(Step):
         return next((m for m in self._managers
                      if m.name in linux and m.available()), None)
 
-    def _add_toolchain_rows(self, ctx: InstallContext, table: Table) -> None:
+    def _add_toolchain_rows(self, ctx: InstallContext, table: Table,
+                            owner_of) -> None:
         """Add an installed/missing row per SYCL toolchain (and CUDA)."""
         for name, present, detail in probe.toolchain_status(ctx.cfg, ctx.gpu):
             ctx.detected[name] = present
-            table.add_row(name, _mark(present), detail)
+            table.add_row(name, _mark(present), owner_of(name), detail)
 
     def run(self, ctx: InstallContext) -> StepResult:
         plat = ctx.cfg.platform
         refresh_windows_path()  # reflect tools the bootstrap installer just added
+
+        # Which module contributed each dependency, so every row can name its
+        # owner ('shared' for the base build/toolchain infrastructure). Building
+        # the list here also populates the source's depends_on map for the
+        # readiness report below.
+        all_deps = self._source.all()
+        owner_by_name = {dep.name: dep.owner for dep in all_deps}
+        from .dependency_source import SHARED_OWNER
+
+        def owner_of(name: str) -> str:
+            return owner_by_name.get(name, SHARED_OWNER)
+
         table = Table(show_header=True, header_style=console.accent,
                       title="Environment inventory")
         table.add_column("Component")
         table.add_column("Status")
+        table.add_column("Owner", style="cyan")
         table.add_column("Detail", style="dim")
 
         # Some tools the build uses live off PATH (the deps folder, or a vcpkg
@@ -109,7 +123,7 @@ class DetectStep(Step):
             if not path and configured.get(tool) and Path(configured[tool]).is_file():
                 path = configured[tool]
             ctx.detected[tool] = bool(path)
-            table.add_row(tool, _mark(bool(path)), path)
+            table.add_row(tool, _mark(bool(path)), owner_of(tool), path)
 
         compiler, where = probe.find_sycl_compiler(ctx.cfg)
         if compiler is None:
@@ -118,6 +132,7 @@ class DetectStep(Step):
             compiler, where = probe.find_configured_toolchain(ctx.cfg)
         ctx.detected["sycl_compiler"] = compiler is not None
         table.add_row("SYCL compiler (active)", _mark(compiler is not None),
+                      "sushiruntime",
                       f"{compiler or '-'} {where or ''}".strip())
 
         # Per-toolchain status. These are SushiRuntime's SYCL toolchains, installed
@@ -125,7 +140,7 @@ class DetectStep(Step):
         # rather than in the manifest-dependency loop below — which only covers
         # apt/vcpkg packages. This is the "what is installed" view for the heavy
         # components `ss install --customize` lets you pick.
-        self._add_toolchain_rows(ctx, table)
+        self._add_toolchain_rows(ctx, table, owner_of)
 
         # Use the same check `install-deps` uses (check_cmd, then the package
         # manager) so detect and install agree — a lib installed via vcpkg/apt
@@ -139,12 +154,12 @@ class DetectStep(Step):
                 present = bool(dep.check_cmd) and _check_cmd_ok(dep.check_cmd)
             ctx.detected[dep.name] = present
             pkgs = ", ".join(dep.packages_for(plat))
-            table.add_row(dep.name, _mark(present),
+            table.add_row(dep.name, _mark(present), dep.owner,
                           f"{dep.description} ({pkgs})")
 
         gpu_present = shutil.which("nvidia-smi") is not None
         ctx.detected["nvidia_gpu"] = gpu_present
-        table.add_row("NVIDIA GPU", _mark(gpu_present),
+        table.add_row("NVIDIA GPU", _mark(gpu_present), "sushiruntime",
                       "use --gpu to install CUDA" if gpu_present else "")
 
         console.console.print(table)
@@ -161,7 +176,73 @@ class DetectStep(Step):
             console.info("System prerequisites kept outside that folder: the host "
                          "compiler (gcc) plus the -dev packages (hwloc, gtest, "
                          "opencl), git, and — with --gpu — the CUDA toolkit.")
+
+        self._report_readiness(ctx, all_deps)
         return StepResult.OK
+
+    def _effective_required(self, module: str, all_deps: list[Dependency]) -> list[str]:
+        """Names of the required dependencies a module needs to build.
+
+        A module needs the shared build/toolchain infrastructure, its own
+        required dependencies, and — transitively — the required dependencies of
+        every module it declares it builds on (``[module] depends_on``).
+        """
+        from .dependency_source import SHARED_OWNER
+
+        want: set[str] = set()
+        seen: set[str] = set()
+
+        def visit(m: str) -> None:
+            if m in seen:
+                return
+            seen.add(m)
+            for dep in all_deps:
+                if dep.required and dep.owner == m:
+                    want.add(dep.name)
+            for upstream in self._source.depends_on(m):
+                visit(upstream)
+
+        visit(module)
+        for dep in all_deps:  # shared infrastructure applies to every module
+            if dep.required and dep.owner == SHARED_OWNER:
+                want.add(dep.name)
+        return sorted(want)
+
+    def _report_readiness(self, ctx: InstallContext, all_deps: list[Dependency]) -> None:
+        """Print a plain-English, per-module readiness summary under the table.
+
+        For every known stack module: whether it is cloned, and if so whether all
+        the dependencies it needs (its own plus the modules it builds on) are
+        present. A dependency the current platform does not check (no package, no
+        toolchain, no check) is treated as satisfied — nothing to install here.
+        """
+        from ..config import registered_modules, workspace_root
+        from ..services.modules import MODULES, module_dest
+
+        try:
+            root = workspace_root()
+        except SystemExit:
+            return
+
+        linked = registered_modules()
+        console.info("Module readiness:")
+        for name in MODULES:
+            dest = module_dest(root, name)
+            present = (dest / ".git").is_dir()
+            if not present:
+                verb = "linked but missing at" if name in linked else "not cloned yet"
+                hint = f" ({dest})" if name in linked else f" (ss add {name})"
+                console.console.print(f"  [dim]{name}: {verb}{hint}[/dim]")
+                continue
+            missing = [
+                dep_name for dep_name in self._effective_required(name, all_deps)
+                if ctx.detected.get(dep_name) is False
+            ]
+            if missing:
+                console.console.print(
+                    f"  [yellow]{name}: needs {', '.join(missing)}[/yellow]")
+            else:
+                console.console.print(f"  [green]{name}: ready to build[/green]")
 
 
 class InstallDepsStep(Step):

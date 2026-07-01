@@ -83,6 +83,25 @@ def link(
     raise typer.Exit(modules_svc.link(module, path))
 
 
+@app.command("install-cli")
+def install_cli(
+    modules: List[str] = typer.Argument(
+        ..., help="Modules whose CLI to install: sushiruntime | sushiengine | "
+                  "sushiai | sushiblas | all."),
+    editable: bool = typer.Option(
+        True, "--editable/--no-editable",
+        help="Install editable (default) so edits in the checkout apply live."),
+):
+    """Install a module's developer CLI (`sr`, `se`) into an isolated pipx venv.
+
+    The single install seam for the stack: no module ships its own bootstrap
+    script. This installs the module's [cyan]cli/[/cyan] package and injects the
+    shared [cyan]sushicli[/cyan] presentation layer from its sibling checkout.
+    """
+    from .services import cli_install as cli_install_svc
+    raise typer.Exit(cli_install_svc.install_cli(modules, editable=editable))
+
+
 @app.command("update")
 def update(
     modules: Optional[List[str]] = typer.Argument(

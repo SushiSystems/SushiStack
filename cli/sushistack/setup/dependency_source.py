@@ -33,6 +33,14 @@ from ..config import config_dir, registered_modules, workspace_root
 #: Path, relative to a module's repo root, of the fragment it contributes.
 MODULE_MANIFEST_REL = Path("cli") / "sushistack.deps.toml"
 
+#: Owner label for the base fragments under cli/manifests/ — the build/toolchain
+#: infrastructure every module shares, owned by no single module.
+SHARED_OWNER = "shared"
+
+#: Reserved table name a fragment uses to declare module-level metadata
+#: (currently ``depends_on``) rather than a dependency.
+MODULE_META_TABLE = "module"
+
 
 @dataclass(frozen=True)
 class Dependency:
@@ -45,6 +53,7 @@ class Dependency:
     linux_apt: list[str]
     windows_vcpkg: list[str]
     check_cmd: list[str]
+    owner: str = SHARED_OWNER  # which module contributed this dependency
 
     def packages_for(self, platform: str) -> list[str]:
         """Package names for the given platform ('windows' | other = linux)."""
@@ -58,6 +67,10 @@ class IDependencySource(ABC):
     def all(self) -> list[Dependency]:
         """Every declared dependency, regardless of platform."""
         raise NotImplementedError
+
+    def depends_on(self, module: str) -> list[str]:
+        """Modules the given module directly builds on. Empty unless overridden."""
+        return []
 
     def selected(self, platform: str, gpu: bool) -> list[Dependency]:
         """Dependencies relevant to this platform/GPU choice with packages.
@@ -74,17 +87,19 @@ class IDependencySource(ABC):
         return out
 
 
-def manifest_paths() -> list[Path]:
-    """Every dependency-fragment file the installer should aggregate.
+def manifest_sources() -> list[tuple[Path, str]]:
+    """Every dependency fragment plus the module that owns it.
 
-    Shipped fragments under ``cli/manifests/`` come first (sorted by name, so the
-    aggregation order is stable), then each cloned module's own
-    ``sushistack.deps.toml`` at the workspace root.
+    Each entry is ``(path, owner)``: shipped fragments under ``cli/manifests/``
+    are owned by :data:`SHARED_OWNER` (the module-independent build/toolchain
+    infrastructure); a module's ``cli/sushistack.deps.toml`` is owned by the
+    module's directory name. Shared fragments come first (sorted, stable order),
+    then modules in the workspace, then linked external checkouts.
     """
-    paths: list[Path] = []
+    sources: list[tuple[Path, str]] = []
     manifests_dir = config_dir() / "manifests"
     if manifests_dir.is_dir():
-        paths.extend(sorted(manifests_dir.glob("*.deps.toml")))
+        sources.extend((p, SHARED_OWNER) for p in sorted(manifests_dir.glob("*.deps.toml")))
     try:
         root = workspace_root()
     except SystemExit:
@@ -93,22 +108,39 @@ def manifest_paths() -> list[Path]:
         for module in sorted(p for p in root.iterdir() if p.is_dir()):
             fragment = module / MODULE_MANIFEST_REL
             if fragment.is_file():
-                paths.append(fragment)
+                sources.append((fragment, module.name))
     # Modules linked to external checkouts (a developer's working repos that live
     # outside the workspace tree) contribute their fragment too.
-    for module_path in registered_modules().values():
+    seen = {p for p, _ in sources}
+    for name, module_path in registered_modules().items():
         fragment = Path(module_path) / MODULE_MANIFEST_REL
-        if fragment.is_file() and fragment not in paths:
-            paths.append(fragment)
-    return paths
+        if fragment.is_file() and fragment not in seen:
+            sources.append((fragment, name))
+            seen.add(fragment)
+    return sources
 
 
-def _parse_manifest(path: Path) -> list[Dependency]:
+def manifest_paths() -> list[Path]:
+    """Every dependency-fragment file the installer should aggregate."""
+    return [p for p, _ in manifest_sources()]
+
+
+def _parse_manifest(path: Path, owner: str) -> tuple[list[Dependency], list[str]]:
+    """Return this fragment's dependencies and its ``[module] depends_on`` list.
+
+    The reserved ``[module]`` table carries module metadata (currently the
+    ``depends_on`` list) rather than a dependency, so it is pulled out here and
+    never becomes a :class:`Dependency`.
+    """
     with path.open("rb") as fh:
         doc = tomllib.load(fh)
+    depends_on: list[str] = []
     deps: list[Dependency] = []
     for name, table in doc.items():
         if not isinstance(table, dict):
+            continue
+        if name == MODULE_META_TABLE:
+            depends_on = [str(m) for m in table.get("depends_on", [])]
             continue
         deps.append(
             Dependency(
@@ -119,32 +151,41 @@ def _parse_manifest(path: Path) -> list[Dependency]:
                 linux_apt=list(table.get("linux_apt", [])),
                 windows_vcpkg=list(table.get("windows_vcpkg", [])),
                 check_cmd=list(table.get("check_cmd", [])),
+                owner=owner,
             )
         )
-    return deps
+    return deps, depends_on
 
 
 class TomlDependencySource(IDependencySource):
     """Aggregates dependency fragments from across the workspace.
 
-    ``paths`` can be injected (tests); otherwise the union of every fragment from
-    ``manifest_paths()`` is read, with first-wins de-duplication by name.
+    ``sources`` can be injected (tests) as ``(path, owner)`` pairs; otherwise the
+    union of every fragment from :func:`manifest_sources` is read, with first-wins
+    de-duplication by name. Alongside the merged dependencies it records, per
+    owning module, which modules that module ``depends_on`` — so callers can
+    reason about a module's *effective* dependency set (its own plus those it
+    builds on).
     """
 
-    def __init__(self, paths: list[Path] | None = None) -> None:
-        self._paths = paths if paths is not None else manifest_paths()
+    def __init__(self, sources: list[tuple[Path, str]] | None = None) -> None:
+        self._sources = sources if sources is not None else manifest_sources()
+        self._depends_on: dict[str, list[str]] = {}
 
     def all(self) -> list[Dependency]:
-        if not self._paths:
+        if not self._sources:
             raise FileNotFoundError(
                 "No dependency manifests found. Expected at least "
                 "cli/manifests/*.deps.toml in the SushiStack workspace."
             )
         merged: dict[str, Dependency] = {}
-        for path in self._paths:
+        for path, owner in self._sources:
             if not path.is_file():
                 continue
-            for dep in _parse_manifest(path):
+            deps, depends_on = _parse_manifest(path, owner)
+            if depends_on:
+                self._depends_on.setdefault(owner, []).extend(depends_on)
+            for dep in deps:
                 if dep.name in merged:
                     console.warn(
                         f"Duplicate dependency '{dep.name}' in {path.name} "
@@ -153,3 +194,11 @@ class TomlDependencySource(IDependencySource):
                     continue
                 merged[dep.name] = dep
         return list(merged.values())
+
+    def depends_on(self, module: str) -> list[str]:
+        """Modules the given module directly builds on (``[module] depends_on``).
+
+        Populated as a side effect of :meth:`all`; call ``all()`` first (the
+        readiness reporter does).
+        """
+        return self._depends_on.get(module, [])
