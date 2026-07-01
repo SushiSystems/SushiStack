@@ -17,12 +17,14 @@ from __future__ import annotations
 import os
 import platform
 
-from dataclasses import dataclass, fields
+from dataclasses import dataclass
 from pathlib import Path
 
-# Domain-agnostic config plumbing (marker walk-up, [tool] TOML layering) shared
-# by every Sushi* CLI. This repo keeps only its own schema below.
-from sushicli.workspace import has_marker, load_layered, read_toml, resolve_env_path, walk_up
+# Domain-agnostic config plumbing shared by every Sushi* CLI. The generic build-
+# tool schema (cmake/ninja/vcpkg paths) and the layered-load / [tool]-write
+# skeleton live in sushicli; this repo adds only the SYCL-specific fields below.
+from sushicli.config_base import ToolConfig, load_tool_config, write_tool_section
+from sushicli.workspace import has_marker, read_toml, resolve_env_path, walk_up
 
 # Marker file written at the workspace root by `ss init`. Its presence is how any
 # `ss`/`sr`/`se` invocation locates the shared workspace from a nested directory.
@@ -162,55 +164,33 @@ _ENV_OVERRIDES = {
 
 
 @dataclass
-class Config:
-    """Resolved, platform-specific tool configuration."""
+class Config(ToolConfig):
+    """Resolved, platform-specific tool configuration for provisioning the stack.
+
+    Inherits the generic host build-tool fields (cmake/ninja/vcpkg paths, etc.)
+    from :class:`ToolConfig` and adds the SYCL toolchain selection and compiler
+    roots ``ss install`` discovers and writes into config.local.toml.
+    """
 
     # SYCL toolchain selection (intel-llvm | adaptivecpp | oneapi). Persisted by
     # `sr toolchain` and consumed as -DSR_SYCL_TOOLCHAIN at configure time.
     toolchain: str = "intel-llvm"
 
-    # Compilers / build. Empty cc/cxx means "derive from the toolchain".
+    # The C compiler. Empty cc/cxx (cxx from ToolConfig) means "derive from the
+    # toolchain" via TOOLCHAIN_COMPILERS.
     cc: str = ""
-    cxx: str = ""
-    generator: str = "Ninja"
-    use_vcpkg: bool = False
 
-    # Tool roots / paths (mostly Windows-specific absolutes)
-    vcpkg_root: str = ""
     oneapi_root: str = ""
-    vs_vcvars: str = ""
-    ninja_exe: str = ""
-    # cmake/ctest are resolved from PATH when empty. They are configurable
-    # because VS BuildTools does not ship the CMake component, so on Windows
-    # cmake commonly lives in a scoop/standalone install that is not on PATH.
-    cmake_exe: str = ""
-    ctest_exe: str = ""
     icx_compiler: str = ""
     # intel/llvm nightly bundle root (holds bin/clang++) for the intel-llvm
     # toolchain, and the AdaptiveCpp compiler for the adaptivecpp toolchain.
     # On Windows these are how the non-oneAPI toolchains provide a SYCL compiler;
-    # they are discovered by `sr setup` and written to config.local.toml.
+    # they are discovered by `ss install` and written to config.local.toml.
     llvm_root: str = ""
     acpp_exe: str = ""
-    pkgconf_exe: str = ""
-    # doxygen is resolved from PATH when empty; configurable because on Windows it
-    # commonly installs outside PATH (winget/choco shims or Program Files).
-    doxygen_exe: str = ""
-    vcpkg_triplet: str = "x64-windows"
 
     # Run defaults
     target_bin: str = "sr_functional_tests"
-
-    # Derived
-    platform: str = ""
-
-    @property
-    def is_windows(self) -> bool:
-        return self.platform == "windows"
-
-    def expand(self, value: str) -> str:
-        """Expand ~ and env vars in a path-like config value."""
-        return os.path.expandvars(os.path.expanduser(value)) if value else value
 
     def resolved_compilers(self) -> tuple[str, str]:
         """Return (cc, cxx), deriving them from the toolchain when not pinned.
@@ -250,11 +230,7 @@ def load_config() -> Config:
 
     cfg_dir = config_dir()
     sources = [cfg_dir / "config.toml", cfg_dir / "config.local.toml"]
-    values = load_layered(sources, plat, _ENV_OVERRIDES, bool_keys=("use_vcpkg",))
-
-    known = {f.name for f in fields(Config)}
-    cfg = Config(**{k: v for k, v in values.items() if k in known})
-    cfg.platform = plat
+    cfg = load_tool_config(Config, sources, plat, _ENV_OVERRIDES)
     # Guard against a stale/typo'd toolchain leaking through from config or env.
     if cfg.toolchain not in TOOLCHAINS:
         cfg.toolchain = "intel-llvm"
@@ -271,33 +247,11 @@ def set_toolchain(toolchain: str) -> Path:
     if toolchain not in TOOLCHAINS:
         raise ValueError(f"Unknown toolchain '{toolchain}'. Choose one of {', '.join(TOOLCHAINS)}.")
 
-    target = config_dir() / "config.local.toml"
-    doc = read_toml(target)
-    tool = dict(doc.get("tool", {}))
-    tool["toolchain"] = toolchain
-
-    scalars = {k: v for k, v in tool.items() if not isinstance(v, dict)}
-    tables = {k: v for k, v in tool.items() if isinstance(v, dict)}
-
-    lines = [
-        "# Managed by the SushiStack CLI. `ss` writes the toolchain key and the",
-        "# [tool.<platform>] tool paths every module reads.",
-        "",
-        "[tool]",
-    ]
-    for key in sorted(scalars):
-        val = scalars[key]
-        if isinstance(val, bool):
-            lines.append(f"{key} = {'true' if val else 'false'}")
-        else:
-            lines.append(f'{key} = "{val}"')
-    for tname in sorted(tables):
-        lines.append("")
-        lines.append(f"[tool.{tname}]")
-        for key in sorted(tables[tname]):
-            val = str(tables[tname][key]).replace("\\", "/")
-            lines.append(f'{key} = "{val}"')
-    lines.append("")
-
-    target.write_text("\n".join(lines), encoding="utf-8")
-    return target
+    return write_tool_section(
+        config_dir() / "config.local.toml",
+        {"toolchain": toolchain},
+        [
+            "# Managed by the SushiStack CLI. `ss` writes the toolchain key and the",
+            "# [tool.<platform>] tool paths every module reads.",
+        ],
+    )
