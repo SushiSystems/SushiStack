@@ -54,6 +54,7 @@ class Dependency:
     windows_vcpkg: list[str]
     check_cmd: list[str]
     owner: str = SHARED_OWNER  # which module contributed this dependency
+    provides: str = ""  # capability tag; deps sharing one are any-of alternatives
 
     def packages_for(self, platform: str) -> list[str]:
         """Package names for the given platform ('windows' | other = linux)."""
@@ -152,6 +153,7 @@ def _parse_manifest(path: Path, owner: str) -> tuple[list[Dependency], list[str]
                 windows_vcpkg=list(table.get("windows_vcpkg", [])),
                 check_cmd=list(table.get("check_cmd", [])),
                 owner=owner,
+                provides=str(table.get("provides", "")),
             )
         )
     return deps, depends_on

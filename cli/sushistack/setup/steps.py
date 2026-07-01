@@ -180,8 +180,8 @@ class DetectStep(Step):
         self._report_readiness(ctx, all_deps)
         return StepResult.OK
 
-    def _effective_required(self, module: str, all_deps: list[Dependency]) -> list[str]:
-        """Names of the required dependencies a module needs to build.
+    def _effective_required(self, module: str, all_deps: list[Dependency]) -> list[Dependency]:
+        """The required dependencies a module needs to build.
 
         A module needs the shared build/toolchain infrastructure, its own
         required dependencies, and — transitively — the required dependencies of
@@ -189,7 +189,7 @@ class DetectStep(Step):
         """
         from .dependency_source import SHARED_OWNER
 
-        want: set[str] = set()
+        want: dict[str, Dependency] = {}
         seen: set[str] = set()
 
         def visit(m: str) -> None:
@@ -198,23 +198,45 @@ class DetectStep(Step):
             seen.add(m)
             for dep in all_deps:
                 if dep.required and dep.owner == m:
-                    want.add(dep.name)
+                    want[dep.name] = dep
             for upstream in self._source.depends_on(m):
                 visit(upstream)
 
         visit(module)
         for dep in all_deps:  # shared infrastructure applies to every module
             if dep.required and dep.owner == SHARED_OWNER:
-                want.add(dep.name)
-        return sorted(want)
+                want[dep.name] = dep
+        return list(want.values())
+
+    def _missing_requirements(self, ctx: InstallContext,
+                              required: list[Dependency]) -> list[str]:
+        """Unmet requirement labels among *required*, honouring any-of groups.
+
+        Dependencies sharing a ``provides`` tag are interchangeable alternatives
+        (e.g. the SYCL toolchains): the group is satisfied when *any* member is
+        present, and only reported missing — as "a or b or c" — when none are.
+        A dependency the current platform never checked (no package, no toolchain,
+        no check) is treated as satisfied: nothing to install here.
+        """
+        groups: dict[str, list[Dependency]] = {}
+        for dep in required:
+            groups.setdefault(dep.provides or dep.name, []).append(dep)
+
+        missing: list[str] = []
+        for members in groups.values():
+            checked = [m for m in members if m.name in ctx.detected]
+            if not checked:
+                continue  # not applicable on this platform
+            if any(ctx.detected.get(m.name) for m in members):
+                continue  # any-of satisfied
+            missing.append(" or ".join(m.name for m in members))
+        return missing
 
     def _report_readiness(self, ctx: InstallContext, all_deps: list[Dependency]) -> None:
         """Print a plain-English, per-module readiness summary under the table.
 
-        For every known stack module: whether it is cloned, and if so whether all
-        the dependencies it needs (its own plus the modules it builds on) are
-        present. A dependency the current platform does not check (no package, no
-        toolchain, no check) is treated as satisfied — nothing to install here.
+        For every known stack module: whether it is cloned, and if so whether the
+        dependencies it needs (its own plus the modules it builds on) are present.
         """
         from ..config import registered_modules, workspace_root
         from ..services.modules import MODULES, module_dest
@@ -234,10 +256,8 @@ class DetectStep(Step):
                 hint = f" ({dest})" if name in linked else f" (ss add {name})"
                 console.console.print(f"  [dim]{name}: {verb}{hint}[/dim]")
                 continue
-            missing = [
-                dep_name for dep_name in self._effective_required(name, all_deps)
-                if ctx.detected.get(dep_name) is False
-            ]
+            missing = self._missing_requirements(
+                ctx, self._effective_required(name, all_deps))
             if missing:
                 console.console.print(
                     f"  [yellow]{name}: needs {', '.join(missing)}[/yellow]")
